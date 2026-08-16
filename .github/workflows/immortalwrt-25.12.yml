@@ -60,17 +60,28 @@ jobs:
           REPO_BRANCH: openwrt-25.12
         run: |
           git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
-          cd openwrt
-          sed -i '$a src-git small https://github.com/kenzok8/small' feeds.conf.default
-
+        
       - name: Update feeds
         working-directory: ./openwrt
         run: |
-          sed -i '1i src-git vmware https://github.com/vmware/open-vm-tools' feeds.conf.default
-          sed -i '2i src-git rtp2httpd https://github.com/stackia/rtp2httpd.git' feeds.conf.default
-          sed -i '3i src-git lucky https://github.com/gdy666/luci-app-lucky' feeds.conf.default
+          sed -i '1i src-git kenzo https://github.com/kenzok8/openwrt-packages' feeds.conf.default
+          sed -i '2i src-git small https://github.com/kenzok8/small' feeds.conf.default
+          sed -i '3i src-git vmware https://github.com/vmware/open-vm-tools' feeds.conf.default
+          sed -i '4i src-git rtp2httpd https://github.com/stackia/rtp2httpd.git' feeds.conf.default
+          sed -i '5i src-git lucky https://github.com/gdy666/luci-app-lucky' feeds.conf.default
 
           ./scripts/feeds update -a
+
+          rm -rf feeds/luci/applications/luci-app-mosdns
+          rm -rf feeds/packages/net/{alist,adguardhome,mosdns,xray*,v2ray*,sing*,smartdns}
+          rm -rf feeds/packages/utils/v2dat
+          rm -rf feeds/packages/lang/golang
+
+          git clone --depth 1 \
+            -b 1.26 \
+            https://github.com/kenzok8/golang.git \
+            feeds/packages/lang/golang
+          
           ./scripts/feeds install -a
 
           # 删除 small 中存在递归依赖的 luci-app-fchomo
@@ -258,17 +269,53 @@ jobs:
           grep -E 'CONFIG_(DEBUG_INFO_BTF|DEBUG_INFO_BTF_MODULES|BPF|BPF_SYSCALL|KPROBES|KALLSYMS)' .config || true
           echo "================================"
 
-      - name: Compile the firmware
+      - name: Compile the firmware (debug, single-threaded)
         working-directory: ./openwrt
+        shell: bash
         run: |
+          set -o pipefail
           make download -j8
-          make -j$(nproc)
+          # 单线程编译，完整输出到 build.log，同时显示在 GitHub Actions 日志
+          make -j1 V=s 2>&1 | tee build.log
+      - name: Compress build log
+        if: always()
+        working-directory: ./openwrt
+        shell: bash
+        run: |
+          if [ -f build.log ]; then
+            gzip -9 -f build.log
+          fi
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-build-log-${{ env.date }}
+          path: ./openwrt/build.log.gz
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Get kernel version
         working-directory: ./openwrt
+        shell: bash
         run: |
-          KERNEL_VERSION=$(make -s kernelversion)
-          echo "KERNEL_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV          
+          set -e
+          KERNEL_MAKEFILE=$(find build_dir \
+            -path '*/linux-x86_64/linux-*/Makefile' \
+            -type f \
+            | head -1)
+          if [ -z "$KERNEL_MAKEFILE" ]; then
+            echo "ERROR: Linux kernel Makefile not found."
+            exit 1
+          fi
+          KERNEL_DIR=$(dirname "$KERNEL_MAKEFILE")
+          VERSION=$(grep '^VERSION = ' "$KERNEL_MAKEFILE" | awk '{print $3}')
+          PATCHLEVEL=$(grep '^PATCHLEVEL = ' "$KERNEL_MAKEFILE" | awk '{print $3}')
+          SUBLEVEL=$(grep '^SUBLEVEL = ' "$KERNEL_MAKEFILE" | awk '{print $3}')
+          KERNEL_VERSION="${VERSION}.${PATCHLEVEL}.${SUBLEVEL}"
+          echo "Kernel source:"
+          echo "$KERNEL_DIR"
+          echo "Kernel version: $KERNEL_VERSION"
+          echo "KERNEL_VERSION=$KERNEL_VERSION" >> "$GITHUB_ENV" 
 
       - name: Prepare artifact
         working-directory: ./openwrt
@@ -308,9 +355,6 @@ jobs:
           path: ./openwrt/artifact/firmware/
           retention-days: 30
 
-      # ============================================================
-      # 自动发布 GitHub Release
-      # ============================================================
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
