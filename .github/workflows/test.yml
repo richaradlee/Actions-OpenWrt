@@ -550,21 +550,6 @@ jobs:
             .config
 
       # ============================================================
-      # 13. Get kernel version
-      # ============================================================
-      - name: Get kernel version
-        working-directory: ./openwrt
-        shell: bash
-        run: |
-          set -e
-
-          KERNEL_VERSION=$(make -s kernelversion)
-
-          echo "KERNEL_VERSION=$KERNEL_VERSION" >> "$GITHUB_ENV"
-
-          echo "Kernel version: $KERNEL_VERSION"
-
-      # ============================================================
       # 14. Download sources
       # ============================================================
       - name: Download sources
@@ -588,6 +573,37 @@ jobs:
           export PATH="/usr/lib/ccache:$PATH"
 
           make -j$(nproc) V=s
+
+      - name: Get kernel version
+        working-directory: ./openwrt
+        shell: bash
+        run: |
+          set -e
+
+          KERNEL_MAKEFILE=$(find build_dir \
+            -path '*/linux-x86_64/linux-*/Makefile' \
+            -type f \
+            | head -1)
+
+          if [ -z "$KERNEL_MAKEFILE" ]; then
+            echo "ERROR: Linux kernel Makefile not found."
+            exit 1
+          fi
+
+          KERNEL_DIR=$(dirname "$KERNEL_MAKEFILE")
+
+          VERSION=$(grep '^VERSION = ' "$KERNEL_MAKEFILE" | awk '{print $3}')
+          PATCHLEVEL=$(grep '^PATCHLEVEL = ' "$KERNEL_MAKEFILE" | awk '{print $3}')
+          SUBLEVEL=$(grep '^SUBLEVEL = ' "$KERNEL_MAKEFILE" | awk '{print $3}')
+
+          KERNEL_VERSION="${VERSION}.${PATCHLEVEL}.${SUBLEVEL}"
+
+          echo "Kernel source:"
+          echo "$KERNEL_DIR"
+
+          echo "Kernel version: $KERNEL_VERSION"
+
+          echo "KERNEL_VERSION=$KERNEL_VERSION" >> "$GITHUB_ENV"
 
       # ============================================================
       # 16. Verify generated packages
