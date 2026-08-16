@@ -563,16 +563,31 @@ jobs:
       # ============================================================
       # 15. Compile
       # ============================================================
-      - name: Compile
+      - name: Compile the firmware (debug)
         working-directory: ./openwrt
         shell: bash
         run: |
-          set -e
+          set -o pipefail
+          make download -j8
+          make -j1 V=s 2>&1 | tee build.log
 
-          export CCACHE_DIR="$HOME/.ccache"
-          export PATH="/usr/lib/ccache:$PATH"
+      - name: Compress build log
+        if: always()
+        working-directory: ./openwrt
+        shell: bash
+        run: |
+          if [ -f build.log ]; then
+            gzip -9 -f build.log
+          fi
 
-          make -j$(nproc) V=s
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: immortalwrt-test-build-log-${{ env.date }}
+          path: ./openwrt/build.log.gz
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Get kernel version
         working-directory: ./openwrt
