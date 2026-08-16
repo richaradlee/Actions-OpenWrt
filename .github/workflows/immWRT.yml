@@ -265,11 +265,32 @@ jobs:
           grep -E 'CONFIG_(DEBUG_INFO_BTF|DEBUG_INFO_BTF_MODULES|BPF|BPF_SYSCALL|KPROBES|KALLSYMS)' .config || true
           echo "================================"
 
-      - name: Compile the firmware
+      - name: Compile the firmware (debug, single-threaded)
         working-directory: ./openwrt
+        shell: bash
         run: |
+          set -o pipefail
           make download -j8
-          make -j$(nproc)
+          # 单线程编译，完整输出到 build.log，同时显示在 GitHub Actions 日志
+          make -j1 V=s 2>&1 | tee build.log
+
+      - name: Compress build log
+        if: always()
+        working-directory: ./openwrt
+        shell: bash
+        run: |
+          if [ -f build.log ]; then
+            gzip -9 -f build.log
+          fi
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: openwrt-build-log-${{ env.date }}
+          path: ./openwrt/build.log.gz
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Prepare artifact
         working-directory: ./openwrt
