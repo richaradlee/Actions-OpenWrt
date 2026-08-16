@@ -42,6 +42,7 @@ jobs:
       - name: Space cleanup & Timezone
         env:
           DEBIAN_FRONTEND: noninteractive
+          TZ: Asia/Shanghai
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /usr/lib/jvm /etc/mysql /etc/php || true
           sudo -E apt-get update
@@ -50,13 +51,15 @@ jobs:
               
       - name: Get current date
         id: date
+        env:
+          TZ: Asia/Shanghai
         run: |
-          echo "date=$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_ENV
-          echo "date2=$(date +'%m/%d %Y')" >> $GITHUB_ENV
-          echo "date3=$(date +'%m.%d')" >> $GITHUB_ENV
+          echo "date=$(TZ=Asia/Shanghai date +'%Y.%m.%d-%H%M')" >> $GITHUB_ENV
+          echo "date2=$(TZ=Asia/Shanghai date +'%m/%d %Y')" >> $GITHUB_ENV
+          echo "date3=$(TZ=Asia/Shanghai date +'%m.%d')" >> $GITHUB_ENV
           echo "DOCKERTAG=${{ secrets.DOCKER_ID }}/openwrt-6p:latest" >> $GITHUB_ENV
           VERSION="$(echo "${{github.event.action}}" | grep -Eo " [0-9.]+" | sed -e 's/ //')" || true
-          [ "$VERSION" ] && echo "VERSION=$VERSION" >> $GITHUB_ENV || echo "VERSION=$(date +'%m.%d')" >> $GITHUB_ENV
+          [ "$VERSION" ] && echo "VERSION=$VERSION" >> $GITHUB_ENV || echo "VERSION=$(TZ=Asia/Shanghai date +'%m.%d')" >> $GITHUB_ENV
       
       - name: Clone source code
         env: 
@@ -75,6 +78,12 @@ jobs:
           sed -i '3i src-git lucky https://github.com/gdy666/luci-app-lucky' feeds.conf.default
           ./scripts/feeds update -a
           ./scripts/feeds install -a
+
+          # 删除 small 中存在递归依赖的 luci-app-fchomo
+          rm -rf package/feeds/small/luci-app-fchomo
+
+          # 删除 trojan-plus，避免其无效的 boost-system 依赖警告
+          rm -rf package/feeds/small/trojan-plus
         
       - name: Get new themes
         working-directory: ./openwrt
@@ -93,9 +102,19 @@ jobs:
         run: |
           rm -f ./.config*
           touch ./.config
+
+          # 固定固件系统时区为北京时间
+          grep -q "option timezone" package/base-files/files/etc/config/system \
+            && sed -i "s/option timezone.*/option timezone 'CST-8'/" package/base-files/files/etc/config/system \
+            || echo "        option timezone 'CST-8'" >> package/base-files/files/etc/config/system
+
+          grep -q "option zonename" package/base-files/files/etc/config/system \
+            && sed -i "s/option zonename.*/option zonename 'Asia\\/Shanghai'/" package/base-files/files/etc/config/system \
+            || echo "        option zonename 'Asia/Shanghai'" >> package/base-files/files/etc/config/system
+
           #
           # ========================固件定制部分========================
-          # 
+          #
           # 编译x64固件:
           cat >> .config <<EOF
           CONFIG_TARGET_x86=y
