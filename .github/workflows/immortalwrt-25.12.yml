@@ -1,851 +1,359 @@
 name: ImmortalWrt 25.12.1 x86_64 Latest
-
 on:
+  push:
+    branches:
+      - master
   workflow_dispatch:
-
-permissions:
-  contents: write
-
-env:
-  OPENWRT_REPO: immortalwrt/immortalwrt
-  OPENWRT_BRANCH: v25.12.1
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
+    if: github.event.repository.owner.id == github.event.sender.id
+    permissions:
+      contents: write
+
+    name: Build ${{matrix.target}}
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [25.12]
 
     steps:
-
-      # ============================================================
-      # 1. Checkout ImmortalWrt
-      # ============================================================
-      - name: Checkout ImmortalWrt
+      - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
         with:
-          repository: ${{ env.OPENWRT_REPO }}
-          ref: ${{ env.OPENWRT_BRANCH }}
-          path: openwrt
-          fetch-depth: 1
+          root-reserve-mb: 4096
+          temp-reserve-mb: 1024
+          swap-size-mb: 8192
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
 
-      # ============================================================
-      # 2. Free disk space
-      # ============================================================
-      - name: Free disk space
+      - name: Space cleanup & Timezone
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          TZ: Asia/Shanghai
         run: |
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /usr/lib/jvm /etc/mysql /etc/php || true
+          sudo -E apt-get update
+          sudo -E apt-get -y install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler flex gawk gcc-multilib g++-multilib gettext genisoimage git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool llvm lrzsz ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev scdoc
+          sudo -E timedatectl set-timezone "Asia/Shanghai"
 
-          sudo docker image prune -af || true
-
-          df -h
-
-      # ============================================================
-      # 3. Build dependencies
-      # ============================================================
-      - name: Install dependencies
+      - name: Get current date
+        id: date
+        env:
+          TZ: Asia/Shanghai
         run: |
-          sudo apt-get update
+          echo "date=$(TZ=Asia/Shanghai date +'%Y.%m.%d-%H%M')" >> $GITHUB_ENV
+          echo "date2=$(TZ=Asia/Shanghai date +'%m/%d %Y')" >> $GITHUB_ENV
+          echo "date3=$(TZ=Asia/Shanghai date +'%m.%d')" >> $GITHUB_ENV
+        
+      - name: Clone source code
+        env:
+          REPO_URL: https://github.com/immortalwrt/immortalwrt
+          REPO_BRANCH: openwrt-25.12
+        run: |
+          git clone --depth 1 $REPO_URL -b $REPO_BRANCH openwrt
+          cd openwrt
+          sed -i '$a src-git small https://github.com/kenzok8/small' feeds.conf.default
 
-          sudo apt-get install -y \
-            build-essential \
-            clang \
-            llvm \
-            lld \
-            flex \
-            bison \
-            gawk \
-            gettext \
-            libncurses5-dev \
-            libncursesw5-dev \
-            libssl-dev \
-            python3 \
-            python3-setuptools \
-            python3-pyelftools \
-            rsync \
-            unzip \
-            wget \
-            curl \
-            git \
-            jq \
-            zstd \
-            ccache
-
-      # ============================================================
-      # 4. Update official ImmortalWrt feeds
-      #
-      # IMPORTANT:
-      # 不加入 small。
-      #
-      # ImmortalWrt 官方 feeds 只负责基础 OpenWrt packages。
-      # 第三方最新版在后面单独覆盖。
-      # ============================================================
-      - name: Update official feeds
+      - name: Update feeds
         working-directory: ./openwrt
-        shell: bash
         run: |
-          set -e
+          sed -i '1i src-git vmware https://github.com/vmware/open-vm-tools' feeds.conf.default
+          sed -i '2i src-git rtp2httpd https://github.com/stackia/rtp2httpd.git' feeds.conf.default
+          sed -i '3i src-git lucky https://github.com/gdy666/luci-app-lucky' feeds.conf.default
 
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # ============================================================
-      # 5. Fetch latest third-party sources
-      #
-      # 原则：
-      #
-      # OpenClash / Argon / Lucky / RTP2HTTPD
-      # 每次直接从 upstream HEAD 获取。
-      #
-      # DAED / DAE：
-      # 使用 sbwml/openwrt_helloworld 的 OpenWrt package。
-      #
-      # luci-app-daed / luci-app-dae
-      # 同样从该 OpenWrt package feed 获取。
-      # ============================================================
-      - name: Fetch latest third-party sources
+          # 删除 small 中存在递归依赖的 luci-app-fchomo
+          rm -rf package/feeds/small/luci-app-fchomo
+
+          # 删除 trojan-plus，避免其无效的 boost-system 依赖警告
+          rm -rf package/feeds/small/trojan-plus
+
+      - name: Get new themes
         working-directory: ./openwrt
-        shell: bash
         run: |
-          set -e
-
-          mkdir -p package/custom
-
-          # --------------------------------------------------------
-          # OpenClash
-          # --------------------------------------------------------
-          rm -rf package/custom/luci-app-openclash
-          rm -rf package/custom/openclash-src
-
-          git clone --depth 1 \
-            https://github.com/vernesong/OpenClash.git \
-            package/custom/openclash-src
-
-          OPENCLASH_COMMIT=$(git -C package/custom/openclash-src rev-parse HEAD)
-
-          cp -a \
-            package/custom/openclash-src/luci-app-openclash \
-            package/custom/luci-app-openclash
-
-          # --------------------------------------------------------
-          # Argon
-          # --------------------------------------------------------
-          rm -rf package/custom/luci-theme-argon
-
-          git clone --depth 1 -b master \
-            https://github.com/jerrykuku/luci-theme-argon.git \
-            package/custom/luci-theme-argon
-
-          ARGON_COMMIT=$(git -C package/custom/luci-theme-argon rev-parse HEAD)
-
-          # --------------------------------------------------------
-          # Argon Config
-          # --------------------------------------------------------
-          rm -rf package/custom/luci-app-argon-config
-
-          git clone --depth 1 -b master \
-            https://github.com/jerrykuku/luci-app-argon-config.git \
-            package/custom/luci-app-argon-config
-
-          ARGON_CONFIG_COMMIT=$(git -C package/custom/luci-app-argon-config rev-parse HEAD)
-
-          # --------------------------------------------------------
-          # Lucky
-          # --------------------------------------------------------
-          rm -rf package/custom/lucky
-
-          git clone --depth 1 \
-            https://github.com/gdy666/luci-app-lucky.git \
-            package/custom/lucky
-
-          LUCKY_COMMIT=$(git -C package/custom/lucky rev-parse HEAD)
-
-          # --------------------------------------------------------
-          # RTP2HTTPD
-          # --------------------------------------------------------
-          rm -rf package/custom/rtp2httpd
-
-          git clone --depth 1 \
-            https://github.com/stackia/rtp2httpd.git \
-            package/custom/rtp2httpd
-
-          RTP2HTTPD_COMMIT=$(git -C package/custom/rtp2httpd rev-parse HEAD)
-
-          # --------------------------------------------------------
-          # Save source commits
-          # --------------------------------------------------------
-          cat > /tmp/third-party-commits.txt <<EOF
-          OpenClash=${OPENCLASH_COMMIT}
-          Argon=${ARGON_COMMIT}
-          ArgonConfig=${ARGON_CONFIG_COMMIT}
-          Lucky=${LUCKY_COMMIT}
-          RTP2HTTPD=${RTP2HTTPD_COMMIT}
-          EOF
-
-          echo
-          echo "============================================================"
-          echo "THIRD-PARTY SOURCE COMMITS"
-          echo "============================================================"
-
-          cat /tmp/third-party-commits.txt
-
-      # ============================================================
-      # 6. Install latest DAED / DAE OpenWrt package feed
-      #
-      # sbwml/openwrt_helloworld 当前明确包含：
-      #
-      # daed
-      # dae
-      # luci-app-daed
-      # luci-app-dae
-      #
-      # 并针对 OpenWrt 24.10 / 25.12。
-      # ============================================================
-      - name: Add latest DAED DAE package feed
-        working-directory: ./openwrt
-        shell: bash
-        run: |
-          set -e
-
-          rm -rf package/custom/helloworld
-
-          git clone --depth 1 \
-            https://github.com/sbwml/openwrt_helloworld.git \
-            package/custom/helloworld
-
-          echo
-          echo "============================================================"
-          echo "DAED / DAE SOURCE COMMIT"
-          echo "============================================================"
-
-          git -C package/custom/helloworld log -1 \
-            --format='%H %cd' --date=iso
-
-          echo
-          echo "============================================================"
-          echo "DAED / DAE PACKAGE TREE"
-          echo "============================================================"
-
-          find package/custom/helloworld \
-            -maxdepth 2 \
-            -type f \
-            \( \
-              -path '*/daed/Makefile' \
-              -o -path '*/dae/Makefile' \
-              -o -path '*/luci-app-daed/Makefile' \
-              -o -path '*/luci-app-dae/Makefile' \
-            \) \
-            -print
-
-      # ============================================================
-      # 7. Remove duplicate / old packages
-      #
-      # 非常重要。
-      #
-      # 防止 official feeds 中旧版本抢先进入 package index。
-      # ============================================================
-      - name: Remove duplicate old packages
-        working-directory: ./openwrt
-        shell: bash
-        run: |
-          set -e
-
-          # --------------------------------------------------------
-          # LuCI third-party packages
-          # --------------------------------------------------------
           rm -rf package/feeds/luci/luci-theme-argon
           rm -rf package/feeds/luci/luci-app-argon-config
-          rm -rf package/feeds/luci/luci-app-openclash
-          rm -rf package/feeds/luci/luci-app-lucky
-          rm -rf package/feeds/luci/luci-app-dae
-          rm -rf package/feeds/luci/luci-app-daed
+          rm -rf package/feeds/luci/luci-theme-infinityfreedom
+          rm -rf package/feeds/luci/luci/luci-theme-design
+          rm -rf package/feeds/luci/luci-theme-opentopd
+          rm -rf package/feeds/luci/luci-theme-neobird
 
-          # --------------------------------------------------------
-          # packages feed
-          # --------------------------------------------------------
-          rm -rf package/feeds/packages/dae
-          rm -rf package/feeds/packages/daed
-          rm -rf package/feeds/packages/lucky
+          git clone -b master https://github.com/jerrykuku/luci-theme-argon.git package/feeds/luci/luci-theme-argon
+          git clone -b master https://github.com/jerrykuku/luci-app-argon-config.git package/feeds/luci/luci-app-argon-config
 
-          # --------------------------------------------------------
-          # Remove possible stale custom copies
-          # --------------------------------------------------------
-          rm -rf package/custom/dae
-          rm -rf package/custom/daed
-          rm -rf package/custom/luci-app-dae
-          rm -rf package/custom/luci-app-daed
-
-          echo
-          echo "Old duplicate packages removed."
-
-      # ============================================================
-      # 8. Link latest DAED / DAE packages
-      #
-      # 不复制、不猜 Makefile。
-      # 直接使用 helloworld 中明确的 package directory。
-      # ============================================================
-      - name: Link DAED and DAE packages
+      - name: Costom configure file
         working-directory: ./openwrt
-        shell: bash
         run: |
-          set -e
+          rm -f ./.config*
+          touch ./.config
 
-          for pkg in \
-            daed \
-            dae \
-            luci-app-daed \
-            luci-app-dae
-          do
-            if [ -d "package/custom/helloworld/$pkg" ]; then
+          # 固定固件系统时区为北京时间
+          mkdir -p package/base-files/files/etc/config
 
-              echo "Found package: $pkg"
-
-              rm -rf "package/custom/$pkg"
-
-              ln -s \
-                "$(pwd)/package/custom/helloworld/$pkg" \
-                "package/custom/$pkg"
-
-            else
-
-              echo "WARNING: package not found: $pkg"
-
-            fi
-          done
-
-          echo
-          echo "============================================================"
-          echo "FINAL DAED / DAE PACKAGES"
-          echo "============================================================"
-
-          ls -ld \
-            package/custom/daed \
-            package/custom/dae \
-            package/custom/luci-app-daed \
-            package/custom/luci-app-dae \
-            2>/dev/null || true
-
-      # ============================================================
-      # 9. Prepare RTP2HTTPD package
-      # ============================================================
-      - name: Prepare RTP2HTTPD package
-        working-directory: ./openwrt
-        shell: bash
-        run: |
-          set -e
-
-          RTP_MAKEFILE=$(find package/custom/rtp2httpd \
-            -maxdepth 5 \
-            -name Makefile \
-            -type f | head -1)
-
-          if [ -z "$RTP_MAKEFILE" ]; then
-            echo "ERROR: RTP2HTTPD OpenWrt Makefile not found."
-            exit 1
+          if [ -f package/base-files/files/etc/config/system ]; then
+            sed -i "s/^[[:space:]]*option timezone.*/	option timezone 'CST-8'/" package/base-files/files/etc/config/system
+            sed -i "s/^[[:space:]]*option zonename.*/	option zonename 'Asia\/Shanghai'/" package/base-files/files/etc/config/system
+          else
+            cat > package/base-files/files/etc/config/system <<'EOF'
+          config system
+                  option hostname 'OpenWrt'
+                  option timezone 'CST-8'
+                  option zonename 'Asia/Shanghai'
+          EOF
           fi
 
-          RTP_DIR=$(dirname "$RTP_MAKEFILE")
+          #
+          # ========================固件定制部分========================
+          #
 
-          rm -rf package/custom/rtp2httpd-package
-
-          mkdir -p package/custom/rtp2httpd-package
-
-          cp -a \
-            "$RTP_DIR"/. \
-            package/custom/rtp2httpd-package/
-
-      # ============================================================
-      # 10. Configure kernel + packages
-      #
-      # 重点：
-      #
-      # DYNAMIC_FTRACE
-      # BPF
-      # BPF_JIT
-      # KPROBES
-      # BTF
-      # NETKIT
-      #
-      # 为 DAED / DAE eBPF 做完整准备。
-      # ============================================================
-      - name: Configure kernel and packages
-        working-directory: ./openwrt
-        shell: bash
-        run: |
-          set -e
-
-          cat > .config <<'EOF'
+          # 编译x64固件:
+          cat >> .config <<EOF
           CONFIG_TARGET_x86=y
           CONFIG_TARGET_x86_64=y
-          CONFIG_TARGET_x86_64_DEVICE_generic=y
+          CONFIG_TARGET_x86_64_Generic=y
+          EOF
 
-          CONFIG_GRUB_IMAGES=y
-          CONFIG_GRUB_EFI_IMAGES=y
+          # 固件大小设置:
+          cat >> .config <<EOF
+          CONFIG_TARGET_KERNEL_PARTSIZE=128
+          CONFIG_TARGET_ROOTFS_PARTSIZE=640
+          EOF
 
-          # ========================================================
-          # eBPF / FTRACE
-          # ========================================================
+          # 固件压缩:
+          cat >> .config <<EOF
+          CONFIG_TARGET_IMAGES_GZIP=y
+          EOF
 
-          CONFIG_KERNEL_BPF=y
-          CONFIG_KERNEL_BPF_SYSCALL=y
-          CONFIG_KERNEL_BPF_JIT=y
+          # 编译UEFI固件:
+          cat >> .config <<EOF
+          CONFIG_EFI_IMAGES=y
+          EOF
 
-          CONFIG_KERNEL_FTRACE=y
-          CONFIG_KERNEL_FUNCTION_TRACER=y
-          CONFIG_KERNEL_DYNAMIC_FTRACE=y
-          CONFIG_KERNEL_DYNAMIC_FTRACE_WITH_REGS=y
-          CONFIG_KERNEL_FUNCTION_GRAPH_TRACER=y
+          # IPv6支持:
+          cat >> .config <<EOF
+          CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y
+          CONFIG_PACKAGE_ipv6helper=y
+          CONFIG_PACKAGE_odhcp6c=y
+          CONFIG_PACKAGE_odhcpd-ipv6only=y
+          CONFIG_PACKAGE_luci-proto-ipv6=y
+          CONFIG_PACKAGE_ip6tables=y
+          CONFIG_PACKAGE_kmod-nft-nat6=y
+          EOF
 
-          CONFIG_KERNEL_KPROBES=y
-          CONFIG_KERNEL_KPROBE_EVENTS=y
+          # bonding支持:
+          cat >> .config <<EOF
+          CONFIG_PACKAGE_kmod-bonding=y
+          CONFIG_PACKAGE_proto-bonding=y
+          CONFIG_PACKAGE_luci-proto-bonding=y
+          EOF
 
-          CONFIG_KERNEL_DEBUG_INFO=y
-          CONFIG_KERNEL_DEBUG_INFO_BTF=y
-          CONFIG_KERNEL_DEBUG_INFO_BTF_MODULES=y
-
-          CONFIG_KERNEL_NET_INGRESS=y
-          CONFIG_KERNEL_NET_EGRESS=y
-          CONFIG_KERNEL_NETKIT=y
-
-          # ========================================================
-          # LuCI
-          # ========================================================
-
+          # 常用LuCI插件选择:
+          cat >> .config <<EOF
           CONFIG_PACKAGE_luci=y
-          CONFIG_PACKAGE_luci-ssl=y
-
-          # ========================================================
-          # OpenClash
-          #
-          # 编译进去，但不要求默认启用。
-          # ========================================================
-
-          CONFIG_PACKAGE_luci-app-openclash=y
-
-          # ========================================================
-          # Argon
-          # ========================================================
-
-          CONFIG_PACKAGE_luci-theme-argon=y
-          CONFIG_PACKAGE_luci-app-argon-config=y
-
-          # ========================================================
-          # Lucky
-          # ========================================================
-
+          CONFIG_PACKAGE_luci-app-diskman=y
           CONFIG_PACKAGE_luci-app-lucky=y
-          CONFIG_PACKAGE_lucky=y
-
-          # ========================================================
-          # SQM
-          # ========================================================
-
+          CONFIG_PACKAGE_luci-app-filebrowser=n
+          CONFIG_PACKAGE_luci-app-irqbalance=y
+          CONFIG_PACKAGE_luci-app-taskplan=n
+          CONFIG_PACKAGE_luci-app-package-manager=y
           CONFIG_PACKAGE_luci-app-sqm=y
           CONFIG_PACKAGE_sqm-scripts=y
+          CONFIG_PACKAGE_kmod-sched-cake=y
+          CONFIG_PACKAGE_kmod-ifb=y
+          CONFIG_PACKAGE_tc-full=y
 
-          # ========================================================
-          # WireGuard
-          # ========================================================
-
-          CONFIG_PACKAGE_luci-app-wireguard=y
-          CONFIG_PACKAGE_wireguard-tools=y
-          CONFIG_PACKAGE_kmod-wireguard=y
-
-          # ========================================================
-          # DAE
-          # ========================================================
-
-          CONFIG_PACKAGE_dae=y
-          CONFIG_PACKAGE_luci-app-dae=y
-
-          # ========================================================
-          # DAED
-          #
-          # 这次重点解决：
-          # “编译后 DAED 仍然是旧版本”
-          # ========================================================
-
-          CONFIG_PACKAGE_daed=y
-          CONFIG_PACKAGE_luci-app-daed=y
-
-          # ========================================================
-          # RTP2HTTPD
-          # ========================================================
-
-          CONFIG_PACKAGE_rtp2httpd=y
+          # IPTV
           CONFIG_PACKAGE_luci-app-rtp2httpd=y
 
-          # ========================================================
-          # Compiler cache
-          # ========================================================
+          # 科学上网
+          CONFIG_PACKAGE_luci-app-ssr-plus=n
+          CONFIG_PACKAGE_luci-app-passwall=n
+          CONFIG_PACKAGE_luci-app-passwall2=y
+          CONFIG_PACKAGE_luci-app-openclash=y
+          CONFIG_PACKAGE_luci-app-mihomo=n
+          CONFIG_PACKAGE_luci-app-homeproxy=n
 
-          CONFIG_CCACHE=y
+          # DAED
+          CONFIG_PACKAGE_daed=y
+          CONFIG_PACKAGE_luci-app-daed=y
+          CONFIG_PACKAGE_kmod-nft-tproxy=y
+          CONFIG_PACKAGE_kmod-nft-socket=y
+          CONFIG_PACKAGE_kmod-nft-compat=y
+          CONFIG_PACKAGE_nftables=y
+          CONFIG_PACKAGE_ip-full=y
+
+          # VPN与组网
+          CONFIG_PACKAGE_luci-app-softethervpn=n
+          CONFIG_PACKAGE_luci-app-openvpn=y
+          CONFIG_PACKAGE_luci-app-openvpn-server=y
+          CONFIG_PACKAGE_openvpn-easy-rsa=y
+          CONFIG_PACKAGE_netbird=n
+          CONFIG_PACKAGE_wireguard-tools=y
+          CONFIG_PACKAGE_kmod-wireguard=y
+          CONFIG_PACKAGE_luci-app-wireguard=y
+          CONFIG_PACKAGE_luci-proto-wireguard=y
           EOF
+
+          # LuCI主题:
+          cat >> .config <<EOF
+          CONFIG_PACKAGE_luci-theme-argon=y
+          EOF
+
+          # 常用软件包:
+          cat >> .config <<EOF
+          CONFIG_PACKAGE_curl=y
+          CONFIG_PACKAGE_htop=y
+          CONFIG_PACKAGE_nano=y
+          CONFIG_PACKAGE_screen=y
+          CONFIG_PACKAGE_tree=y
+          CONFIG_PACKAGE_vim-fuller=n
+          CONFIG_PACKAGE_wget=y
+          CONFIG_PACKAGE_acme=y
+          CONFIG_PACKAGE_acme-dnsapi=y
+          CONFIG_PACKAGE_haproxy=y
+          CONFIG_PACKAGE_socat=y
+          CONFIG_SOCAT_SSL=y
+          CONFIG_SING_BOX_WITH_ECH=y
+          CONFIG_PACKAGE_sing-box=y
+          CONFIG_PACKAGE_chinadns-ng=y
+          CONFIG_PACKAGE_open-vm-tools=y
+          CONFIG_PACKAGE_iperf3=y
+          CONFIG_PACKAGE_iftop=y
+          CONFIG_PACKAGE_tcpdump=y
+          CONFIG_PACKAGE_pv=y
+          CONFIG_PACKAGE_bind-host=y
+          CONFIG_PACKAGE_firewall4=y
+          CONFIG_PACKAGE_dns2socks=y
+          CONFIG_PACKAGE_tcping=y
+          CONFIG_PACKAGE_geoview=y
+          CONFIG_PACKAGE_irqbalance=y
+          EOF
+
+          # 取消编译VMware镜像以及镜像填充
+          # cat >> .config <<EOF
+          # # CONFIG_TARGET_IMAGES_PAD is not set
+          # # CONFIG_VMDK_IMAGES is not set
+          # EOF
+
+          #
+          # ========================固件定制部分结束========================
+          #
+
+          sed -i 's/^[ \t]*//g' ./.config
 
           make defconfig
 
-      # ============================================================
-      # 11. Verify final OpenWrt .config
-      # ============================================================
-      - name: Verify final configuration
+          echo "===== DAED dependency check ====="
+          grep -E 'CONFIG_(DEBUG_INFO_BTF|DEBUG_INFO_BTF_MODULES|BPF|BPF_SYSCALL|KPROBES|KALLSYMS)' .config || true
+          echo "================================"
+
+      - name: Compile the firmware
         working-directory: ./openwrt
-        shell: bash
         run: |
+          make download -j8
+          make -j$(nproc)
+
+      - name: Get kernel version
+        working-directory: ./openwrt
+        run: |
+          KERNEL_VERSION=$(make -s kernelversion)
+          echo "KERNEL_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV          
+
+      - name: Prepare artifact
+        working-directory: ./openwrt
+        run: |
+          mkdir -p ./artifact/firmware
+          mkdir -p ./artifact/package
+          mkdir -p ./artifact/buildinfo
+
+          set +e
+          rm -rf $(find ./bin/targets/ -type f -name "openwrt-x86-64-generic-kernel.bin")
+          rm -rf $(find ./bin/targets/ -type f -name "openwrt-x86-64-generic-squashfs-rootfs.img.gz")
+          rm -rf $(find ./bin/targets/ -type d -name "packages")
           set -e
 
-          echo
-          echo "============================================================"
-          echo "FINAL KERNEL CONFIG"
-          echo "============================================================"
-
-          grep -E \
-            '^CONFIG_KERNEL_(BPF|BPF_SYSCALL|BPF_JIT|FTRACE|FUNCTION_TRACER|DYNAMIC_FTRACE|DYNAMIC_FTRACE_WITH_REGS|FUNCTION_GRAPH_TRACER|KPROBES|KPROBE_EVENTS|DEBUG_INFO|DEBUG_INFO_BTF|DEBUG_INFO_BTF_MODULES|NET_INGRESS|NET_EGRESS|NETKIT)=' \
-            .config
-
-          echo
-          echo "============================================================"
-          echo "FINAL PACKAGE CONFIG"
-          echo "============================================================"
-
-          grep -E \
-            '^CONFIG_PACKAGE_(luci-app-openclash|luci-theme-argon|luci-app-argon-config|luci-app-lucky|lucky|luci-app-sqm|sqm-scripts|luci-app-wireguard|wireguard-tools|kmod-wireguard|dae|luci-app-dae|daed|luci-app-daed|rtp2httpd|luci-app-rtp2httpd)=' \
-            .config
-
-      # ============================================================
-      # 12. Verify package Makefiles and versions
-      # ============================================================
-      - name: Verify package versions before compile
-        working-directory: ./openwrt
-        shell: bash
-        run: |
-          set -e
-
-          echo
-          echo "============================================================"
-          echo "PACKAGE MAKEFILE VERSIONS"
-          echo "============================================================"
-
-          for pkg in \
-            package/custom/luci-app-openclash \
-            package/custom/luci-theme-argon \
-            package/custom/luci-app-argon-config \
-            package/custom/lucky \
-            package/custom/rtp2httpd-package \
-            package/custom/daed \
-            package/custom/dae \
-            package/custom/luci-app-daed \
-            package/custom/luci-app-dae
-          do
-
-            if [ -d "$pkg" ]; then
-
-              echo
-              echo "===== $pkg ====="
-
-              find "$pkg" \
-                -maxdepth 3 \
-                -name Makefile \
-                -type f \
-                -exec grep -H -E \
-                  '^(PKG_NAME|PKG_VERSION|PKG_RELEASE):=' {} \; \
-                || true
-
-            fi
-
-          done
-
-      # ============================================================
-      # 13. Verify DAED upstream package source
-      #
-      # 不允许悄悄使用老版本。
-      # ============================================================
-      - name: Verify DAED package source
-        working-directory: ./openwrt
-        shell: bash
-        run: |
-          set -e
-
-          echo
-          echo "============================================================"
-          echo "DAED SOURCE VERIFICATION"
-          echo "============================================================"
-
-          if [ ! -d package/custom/daed ]; then
-            echo "ERROR: DAED package directory does not exist."
-            exit 1
-          fi
-
-          if [ ! -f package/custom/daed/Makefile ]; then
-            echo "ERROR: DAED Makefile does not exist."
-            exit 1
-          fi
-
-          grep -E \
-            '^(PKG_NAME|PKG_VERSION|PKG_RELEASE|PKG_SOURCE|PKG_SOURCE_URL|PKG_HASH):=' \
-            package/custom/daed/Makefile \
-            || true
-
-          echo
-          echo "DAED package Makefile:"
-          sed -n '1,160p' package/custom/daed/Makefile
-
-      # ============================================================
-      # 14. Download
-      # ============================================================
-      - name: Download sources
-        working-directory: ./openwrt
-        shell: bash
-        run: |
-          set -e
-
-          make download -j$(nproc) V=s
-
-      # ============================================================
-      # 15. Compile
-      # ============================================================
-      - name: Compile
-        working-directory: ./openwrt
-        shell: bash
-        run: |
-          set -e
-
-          export CCACHE_DIR="$HOME/.ccache"
-          export PATH="/usr/lib/ccache:$PATH"
-
-          make -j$(nproc) V=s
-
-      # ============================================================
-      # 16. Verify actual generated packages
-      #
-      # 这是解决“编译时最新版，安装后老版本”的核心验证。
-      # ============================================================
-      - name: Verify generated package versions
-        working-directory: ./openwrt
-        shell: bash
-        run: |
-          set -e
-
-          echo
-          echo "============================================================"
-          echo "GENERATED PACKAGES"
-          echo "============================================================"
-
-          find bin/packages \
-            -type f \
-            \( \
-              -iname '*daed*.apk' \
-              -o -iname '*dae*.apk' \
-              -o -iname '*luci-app-daed*.apk' \
-              -o -iname '*luci-app-dae*.apk' \
-              -o -iname '*openclash*.apk' \
-              -o -iname '*argon*.apk' \
-              -o -iname '*lucky*.apk' \
-              -o -iname '*rtp2httpd*.apk' \
-            \) \
-            -print | sort
-
-          echo
-          echo "============================================================"
-          echo "DAED PACKAGE"
-          echo "============================================================"
-
-          find bin/packages \
-            -type f \
-            -iname 'daed*.apk' \
-            -print | sort
-
-          echo
-          echo "============================================================"
-          echo "LUCI DAED PACKAGE"
-          echo "============================================================"
-
-          find bin/packages \
-            -type f \
-            -iname 'luci-app-daed*.apk' \
-            -print | sort
-
-      # ============================================================
-      # 17. Verify package index contains selected packages
-      # ============================================================
-      - name: Verify package indexes
-        working-directory: ./openwrt
-        shell: bash
-        run: |
-          set -e
-
-          echo
-          echo "============================================================"
-          echo "APK PACKAGE INDEX"
-          echo "============================================================"
-
-          find bin/packages \
-            -type f \
-            \( \
-              -name 'Packages.adb' \
-              -o -name 'Packages.manifest' \
-              -o -name 'Packages.gz' \
-            \) \
-            -print
-
-          echo
-          echo "DAED package files:"
-          find bin/packages \
-            -type f \
-            -iname '*daed*.apk' \
-            -print
-
-          test -n "$(find bin/packages \
-            -type f \
-            -iname 'daed*.apk' \
-            -print -quit)"
-
-          test -n "$(find bin/packages \
-            -type f \
-            -iname 'luci-app-daed*.apk' \
-            -print -quit)"
-
-      # ============================================================
-      # 18. Verify final kernel build configuration
-      #
-      # 注意：
-      # 这里检查 Linux kernel 自己的 .config，
-      # 不只是 OpenWrt 根目录 .config。
-      # ============================================================
-      - name: Verify final Linux kernel configuration
-        working-directory: ./openwrt
-        shell: bash
-        run: |
-          set -e
-
-          echo
-          echo "============================================================"
-          echo "FINAL LINUX KERNEL CONFIG"
-          echo "============================================================"
-
-          KERNEL_CONFIG=$(find build_dir \
-            -path '*/linux-x86_64/linux-*/.config' \
-            -type f \
-            | head -1)
-
-          if [ -z "$KERNEL_CONFIG" ]; then
-            echo "ERROR: Linux kernel .config not found."
-            exit 1
-          fi
-
-          echo "Kernel config:"
-          echo "$KERNEL_CONFIG"
-
-          echo
-          grep -E \
-            '^CONFIG_(BPF|BPF_SYSCALL|BPF_JIT|FTRACE|FUNCTION_TRACER|DYNAMIC_FTRACE|DYNAMIC_FTRACE_WITH_REGS|FUNCTION_GRAPH_TRACER|KPROBES|KPROBE_EVENTS|DEBUG_INFO|DEBUG_INFO_BTF|DEBUG_INFO_BTF_MODULES|NET_INGRESS|NET_EGRESS|NETKIT)=' \
-            "$KERNEL_CONFIG"
-
-          echo
-          echo "============================================================"
-          echo "MANDATORY CHECKS"
-          echo "============================================================"
-
-          REQUIRED_CONFIGS="
-          CONFIG_BPF=y
-          CONFIG_BPF_SYSCALL=y
-          CONFIG_BPF_JIT=y
-          CONFIG_FTRACE=y
-          CONFIG_FUNCTION_TRACER=y
-          CONFIG_DYNAMIC_FTRACE=y
-          CONFIG_DYNAMIC_FTRACE_WITH_REGS=y
-          CONFIG_KPROBES=y
-          CONFIG_DEBUG_INFO_BTF=y
-          CONFIG_NETKIT=y
-          "
-
-          while IFS= read -r config; do
-            [ -z "$config" ] && continue
-
-            if ! grep -qx "$config" "$KERNEL_CONFIG"; then
-              echo "ERROR: Missing kernel config: $config"
-              exit 1
-            fi
-
-            echo "OK: $config"
-
-          done <<EOF
-          $REQUIRED_CONFIGS
-          EOF
-
-      # ============================================================
-      # 19. Prepare release
-      # ============================================================
-      - name: Prepare release
-        working-directory: ./openwrt
-        shell: bash
-        run: |
-          set -e
-
-          mkdir -p release
-
-          DATE=$(date -u +%Y%m%d-%H%M)
-          VERSION="${OPENWRT_BRANCH#v}"
-
-          IMAGE=$(find bin/targets/x86/64 \
-            -maxdepth 1 \
-            -type f \
-            \( \
-              -name '*combined-efi.img.gz' \
-              -o -name '*combined-efi.img' \
-            \) \
-            | head -1)
-
-          if [ -z "$IMAGE" ]; then
-            echo "ERROR: EFI image not found."
-            exit 1
-          fi
-
-          case "$IMAGE" in
-
-            *.img.gz)
-
-              cp "$IMAGE" \
-                "release/ImmortalWrt-${VERSION}-x86_64-efi-${DATE}.img.gz"
-
-              ;;
-
-            *.img)
-
-              cp "$IMAGE" \
-                "release/ImmortalWrt-${VERSION}-x86_64-efi-${DATE}.img"
-
-              ;;
-
-          esac
-
-          # --------------------------------------------------------
-          # Save final OpenWrt config
-          # --------------------------------------------------------
-
-          cp .config \
-            "release/ImmortalWrt-${VERSION}-x86_64.config"
-
-          # --------------------------------------------------------
-          # Save source/version audit
-          # --------------------------------------------------------
-
-          cp /tmp/third-party-commits.txt \
-            "release/third-party-commits.txt"
-
-          echo
-          echo "============================================================"
-          echo "RELEASE FILES"
-          echo "============================================================"
-
-          ls -lh release/
-
-      # ============================================================
-      # 20. Upload artifact
-      # ============================================================
-      - name: Upload firmware
+          cp -rf $(find ./bin/targets/ -type f -name "*combined-efi.img.gz") ./artifact/firmware/
+          cp -rf $(find ./bin/packages/ -type f -name "*.ipk") ./artifact/package/
+          cp -rf $(find ./bin/targets/ -type f \( -name "*.buildinfo" -o -name "*.manifest" \)) ./artifact/buildinfo/
+
+      - name: Deliver buildinfo
         uses: actions/upload-artifact@v4
         with:
-          name: ImmortalWrt-25.12.1-x86_64-efi
-          path: openwrt/release/
-          retention-days: 7
+          name: ${{ env.date }}_OpenWrt_x86_buildinfo_6.12.new.x
+          path: ./openwrt/artifact/buildinfo/
+          retention-days: 30
+
+      - name: Deliver package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.date }}_OpenWrt_x86_package_6.12.new.x
+          path: ./openwrt/artifact/package/
+          retention-days: 30
+
+      - name: Deliver firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.date }}_OpenWrt_x86_firmware_6.12.new.x
+          path: ./openwrt/artifact/firmware/
+          retention-days: 30
+
+      # ============================================================
+      # 自动发布 GitHub Release
+      # ============================================================
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: OpenWrt-${{ env.date }}
+          name: OpenWrt 25.12 x86_64 - ${{ env.date }}
+          body: |
+            ## OpenWrt 25.12 x86_64
+            
+            **固件内核：** ${{ env.KERNEL_VERSION }}
+
+            **编译时间：** ${{ env.date }}（北京时间）
+
+            **目标平台：** x86_64 Generic
+
+            **固件格式：** EFI
+
+            **主要组件：**
+            - OpenClash
+            - PassWall2
+            - DAED
+            - SQM / CAKE
+            - WireGuard
+            - OpenVPN
+            - Lucky
+            - RTP2HTTPD
+            - Argon Theme
+
+            **源码：** ImmortalWrt openwrt-25.12
+            **软件库：** kenzok8/small
+
+            > 本 Release 为 GitHub Actions 自动编译发布。
+          files: |
+            ./openwrt/artifact/firmware/*
+            ./openwrt/artifact/buildinfo/*
+          draft: false
+          prerelease: false
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        continue-on-error: true
+        with:
+          token: ${{ secrets.SEARIY_TOKEN }}
+          retain_days: 20
+          keep_minimum_runs: 3
