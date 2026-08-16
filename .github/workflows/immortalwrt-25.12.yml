@@ -1,4 +1,4 @@
-name: ImmortalWrt 25.12.1 x86_64 Latest
+name: ImmortalWrt x86 Latest
 on:
   push:
     branches:
