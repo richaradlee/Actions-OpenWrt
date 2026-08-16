@@ -11,6 +11,7 @@ jobs:
     if: github.event.repository.owner.id == github.event.sender.id
     permissions:
       contents: write
+      actions: write
 
     name: Build ${{matrix.target}}
     strategy:
@@ -289,21 +290,21 @@ jobs:
       - name: Deliver buildinfo
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.date }}_OpenWrt_x86_buildinfo_6.12.new.x
+          name: ${{ env.date }}.ImmortalWRT.x86.buildinfo.25.12
           path: ./openwrt/artifact/buildinfo/
           retention-days: 30
 
       - name: Deliver package
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.date }}_OpenWrt_x86_package_6.12.new.x
+          name: ${{ env.date }}.ImmortalWRT.x86.package.25.12
           path: ./openwrt/artifact/package/
           retention-days: 30
 
       - name: Deliver firmware
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.date }}_OpenWrt_x86_firmware_6.12.new.x
+          name: ${{ env.date }}.ImmortalWRT.x86.firmware.25.12
           path: ./openwrt/artifact/firmware/
           retention-days: 30
 
@@ -354,6 +355,7 @@ jobs:
         uses: Mattraks/delete-workflow-runs@v2
         continue-on-error: true
         with:
-          token: ${{ secrets.SEARIY_TOKEN }}
+          token: ${{ github.token }}
+          repository: ${{ github.repository }}
           retain_days: 20
           keep_minimum_runs: 3
