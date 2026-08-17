@@ -276,29 +276,36 @@ jobs:
       # 11. Restore download cache
       - name: Restore download cache
         uses: actions/cache/restore@v4
+        id: cache-dl
         with:
           path: ./openwrt/dl
-          key: ${{ runner.os }}-immortalwrt-25.12-x86_64-dl
+          key: ${{ runner.os }}-immortalwrt-dl-v4-${{ env.SOURCE_COMMIT }}
+          restore-keys: |
+            ${{ runner.os }}-immortalwrt-dl-v4-
+            ${{ runner.os }}-immortalwrt-dl-
 
       # 12. Restore ccache
       - name: Restore ccache
         uses: actions/cache/restore@v4
+        id: cache-ccache
         with:
           path: ./openwrt/.ccache
-          key: ${{ runner.os }}-immortalwrt-25.12-x86_64-ccache
+          key: ${{ runner.os }}-immortalwrt-ccache-v4
           restore-keys: |
-            ${{ runner.os }}-immortalwrt-25.12-x86_64-ccache-
+            ${{ runner.os }}-immortalwrt-ccache-
 
       # 13. Restore toolchain cache
       - name: Restore toolchain cache
         uses: actions/cache/restore@v4
+        id: cache-staging
         with:
           path: |
             ./openwrt/staging_dir/host
             ./openwrt/staging_dir/toolchain-*
-          key: ${{ runner.os }}-immortalwrt-25.12-x86_64-toolchain-${{ hashFiles('openwrt/.config') }}
+          key: ${{ runner.os }}-immortalwrt-staging-v4-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config') }}
           restore-keys: |
-            ${{ runner.os }}-immortalwrt-25.12-x86_64-toolchain-
+            ${{ runner.os }}-immortalwrt-staging-v4-
+            ${{ runner.os }}-immortalwrt-staging-
 
       # 14. Run make defconfig
       - name: Run make defconfig
@@ -512,29 +519,29 @@ jobs:
 
       # 23. Save download cache
       - name: Save download cache
-        if: success()
+        if: success() && steps.cache-dl.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ./openwrt/dl
-          key: ${{ runner.os }}-immortalwrt-25.12-x86_64-dl
+          key: ${{ runner.os }}-immortalwrt-dl-v4-${{ env.SOURCE_COMMIT }}
 
       # 24. Save ccache
       - name: Save ccache
-        if: success()
+        if: success() && steps.cache-ccache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ./openwrt/.ccache
-          key: ${{ runner.os }}-immortalwrt-25.12-x86_64-ccache
+          key: ${{ runner.os }}-immortalwrt-ccache-v4
 
       # 25. Save toolchain cache
       - name: Save toolchain cache
-        if: success()
+        if: success() && steps.cache-staging.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
             ./openwrt/staging_dir/host
             ./openwrt/staging_dir/toolchain-*
-          key: ${{ runner.os }}-immortalwrt-25.12-x86_64-toolchain-${{ hashFiles('openwrt/.config') }}
+          key: ${{ runner.os }}-immortalwrt-staging-v4-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config') }}
 
       # 26. Collect EFI image and checksums
       - name: Collect release files
@@ -635,6 +642,12 @@ jobs:
             - WireGuard
             - OpenVPN
             - UPnP IGD
+            - NAT-PMP / PCP
+            - Vlmcsd KMS
+            - sing-box
+            - ChinaDNS-NG
+            - HAProxy
+            - socat
 
             ### 源码
 
@@ -686,4 +699,4 @@ jobs:
           echo "CCache:"
           ccache -s || true
 
-          echo "################################################################" 
+          echo "################################################################"
