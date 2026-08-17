@@ -168,7 +168,7 @@ jobs:
       # 5. Configure feeds
       # ============================================================
 
-      - name: Configure upstream feeds
+      - name: Configure feeds
         working-directory: ./openwrt
 
         run: |
@@ -178,8 +178,15 @@ jobs:
             '1i src-git rtp2httpd https://github.com/stackia/rtp2httpd.git' \
             feeds.conf.default
 
-          echo "===== feeds.conf.default ====="
+          echo
+          echo "============================================================"
+          echo "FEEDS CONFIGURATION"
+          echo "============================================================"
+
           cat feeds.conf.default
+
+          echo
+          echo "============================================================"
 
 
       # ============================================================
@@ -206,9 +213,17 @@ jobs:
         run: |
           set -e
 
+          echo "============================================================"
+          echo "INSTALL THIRD-PARTY PACKAGES"
+          echo "============================================================"
+
+
           # ----------------------------------------------------------
           # OpenClash
           # ----------------------------------------------------------
+
+          echo
+          echo ">>> Installing OpenClash"
 
           rm -rf package/feeds/luci/luci-app-openclash
           rm -rf package/openclash
@@ -223,6 +238,9 @@ jobs:
           # PassWall2
           # ----------------------------------------------------------
 
+          echo
+          echo ">>> Installing PassWall2"
+
           rm -rf package/feeds/luci/luci-app-passwall2
           rm -rf package/passwall2
 
@@ -235,6 +253,9 @@ jobs:
           # ----------------------------------------------------------
           # DAED
           # ----------------------------------------------------------
+
+          echo
+          echo ">>> Installing DAED"
 
           rm -rf package/dae
           rm -rf package/feeds/base/dae
@@ -249,6 +270,9 @@ jobs:
           # Lucky
           # ----------------------------------------------------------
 
+          echo
+          echo ">>> Installing Lucky"
+
           rm -rf package/feeds/lucky/luci-app-lucky
           rm -rf package/lucky
 
@@ -259,8 +283,11 @@ jobs:
 
 
           # ----------------------------------------------------------
-          # Argon
+          # Argon Theme
           # ----------------------------------------------------------
+
+          echo
+          echo ">>> Installing Argon Theme"
 
           rm -rf package/feeds/luci/luci-theme-argon
           rm -rf package/feeds/luci/luci-app-argon-config
@@ -279,8 +306,14 @@ jobs:
             package/argon-config
 
 
+          echo
+          echo "============================================================"
+          echo "THIRD-PARTY PACKAGE INSTALLATION COMPLETE"
+          echo "============================================================"
+
+
       # ============================================================
-      # 8. Refresh package index
+      # 8. Refresh feed packages
       # ============================================================
 
       - name: Refresh feed packages
@@ -293,7 +326,7 @@ jobs:
 
 
       # ============================================================
-      # 9. Create complete V3 configuration
+      # 9. Generate complete V3 configuration
       # ============================================================
 
       - name: Generate V3 configuration
@@ -453,7 +486,6 @@ jobs:
 
           CONFIG_PACKAGE_wireguard-tools=y
           CONFIG_PACKAGE_kmod-wireguard=y
-          CONFIG_PACKAGE_luci-app-wireguard=y
           CONFIG_PACKAGE_luci-proto-wireguard=y
           EOF
 
@@ -545,7 +577,7 @@ jobs:
           set -o pipefail
 
           echo "============================================================"
-          echo "RUN MAKE DECONFIG"
+          echo "RUN MAKE DEFCONFIG"
           echo "============================================================"
 
           make defconfig 2>&1 | tee defconfig.log
@@ -562,8 +594,6 @@ jobs:
 
       - name: Audit defconfig changes
         working-directory: ./openwrt
-
-        shell: bash
 
         run: |
           set -e
@@ -602,7 +632,7 @@ jobs:
 
 
       # ============================================================
-      # 12. Check important package selections
+      # 12. Verify package selections
       # ============================================================
 
       - name: Verify package selections
@@ -619,6 +649,11 @@ jobs:
 
           FAILED=0
 
+
+          # ----------------------------------------------------------
+          # Required package must be explicitly enabled
+          # ----------------------------------------------------------
+
           check_y() {
             SYMBOL="$1"
 
@@ -633,6 +668,14 @@ jobs:
             fi
           }
 
+
+          # ----------------------------------------------------------
+          # Disabled package:
+          #
+          # Both "n" and "<NOT SET>" are acceptable.
+          # Only "y" is considered a failure.
+          # ----------------------------------------------------------
+
           check_n() {
             SYMBOL="$1"
 
@@ -641,12 +684,16 @@ jobs:
 
             echo "$SYMBOL = ${VALUE:-<NOT SET>}"
 
-            if [ "$VALUE" != "n" ]; then
-              echo "ERROR: $SYMBOL is not disabled."
+            if [ "$VALUE" = "y" ]; then
+              echo "ERROR: $SYMBOL is enabled."
               FAILED=1
             fi
           }
 
+
+          # ==========================================================
+          # Required packages
+          # ==========================================================
 
           echo
           echo "===== Required packages ====="
@@ -660,12 +707,22 @@ jobs:
           check_y CONFIG_PACKAGE_luci-app-rtp2httpd
           check_y CONFIG_PACKAGE_luci-theme-argon
 
+
+          # ==========================================================
+          # VPN
+          # ==========================================================
+
           echo
           echo "===== VPN ====="
 
           check_y CONFIG_PACKAGE_kmod-wireguard
           check_y CONFIG_PACKAGE_wireguard-tools
-          check_y CONFIG_PACKAGE_luci-app-wireguard
+          check_y CONFIG_PACKAGE_luci-proto-wireguard
+
+
+          # ==========================================================
+          # SQM
+          # ==========================================================
 
           echo
           echo "===== SQM ====="
@@ -676,6 +733,11 @@ jobs:
           check_y CONFIG_PACKAGE_kmod-ifb
           check_y CONFIG_PACKAGE_tc-full
 
+
+          # ==========================================================
+          # Disabled proxy frontends
+          # ==========================================================
+
           echo
           echo "===== Disabled proxy frontends ====="
 
@@ -685,15 +747,23 @@ jobs:
           check_n CONFIG_PACKAGE_luci-app-homeproxy
           check_n CONFIG_PACKAGE_netbird
 
+
+          # ==========================================================
+          # Final result
+          # ==========================================================
+
           echo
           echo "===== Final result ====="
 
           if [ "$FAILED" -ne 0 ]; then
+
             echo
             echo "============================================================"
             echo "PACKAGE SELECTION VERIFICATION FAILED"
             echo "============================================================"
+
             exit 1
+
           fi
 
           echo
@@ -769,7 +839,7 @@ jobs:
 
 
       # ============================================================
-      # 14. Check invalid / unknown configuration warnings
+      # 14. Check defconfig warnings
       # ============================================================
 
       - name: Check defconfig warnings
@@ -857,7 +927,7 @@ jobs:
 
 
       # ============================================================
-      # 16. Search for known dependency problems
+      # 16. Search known dependency problems
       # ============================================================
 
       - name: Search known dependency problems
@@ -908,7 +978,7 @@ jobs:
 
 
       # ============================================================
-      # 17. Save final config artifact
+      # 17. Upload config diagnostics
       # ============================================================
 
       - name: Upload config diagnostics
@@ -942,8 +1012,10 @@ jobs:
 
           echo
           echo "===== ImmortalWrt ====="
+
           git log -1 --format='commit: %H'
           git log -1 --format='subject: %s'
+
 
           echo
           echo "===== Target ====="
@@ -953,6 +1025,7 @@ jobs:
             .config \
             || true
 
+
           echo
           echo "===== Image configuration ====="
 
@@ -960,6 +1033,7 @@ jobs:
             '^CONFIG_(TARGET_KERNEL_PARTSIZE|TARGET_ROOTFS_PARTSIZE|TARGET_IMAGES_GZIP|EFI_IMAGES)=' \
             .config \
             || true
+
 
           echo
           echo "===== Proxy ====="
@@ -969,13 +1043,15 @@ jobs:
             .config \
             || true
 
+
           echo
           echo "===== VPN ====="
 
           grep -E \
-            '^CONFIG_PACKAGE_(kmod-wireguard|wireguard-tools|luci-app-wireguard|luci-app-openvpn|luci-app-openvpn-server|openvpn-easy-rsa)=' \
+            '^CONFIG_PACKAGE_(kmod-wireguard|wireguard-tools|luci-proto-wireguard|luci-app-openvpn|luci-app-openvpn-server|openvpn-easy-rsa)=' \
             .config \
             || true
+
 
           echo
           echo "===== SQM ====="
@@ -985,6 +1061,7 @@ jobs:
             .config \
             || true
 
+
           echo
           echo "===== DAED / BTF ====="
 
@@ -992,6 +1069,7 @@ jobs:
             '^CONFIG_(KERNEL_DEBUG_INFO|KERNEL_DEBUG_INFO_REDUCED|KERNEL_DEBUG_INFO_BTF|KERNEL_CGROUPS|KERNEL_CGROUP_BPF|KERNEL_BPF_EVENTS|BPF_TOOLCHAIN_HOST|KERNEL_XDP_SOCKETS)=' \
             .config \
             || true
+
 
           echo
           echo "===== Other ====="
@@ -1001,7 +1079,8 @@ jobs:
             .config \
             || true
 
+
           echo
           echo "################################################################"
-          echo "# TEST 02 COMPLETED"
+          echo "# IMMORTALWRT V3 TEST 02 COMPLETED"
           echo "################################################################"
