@@ -178,6 +178,8 @@ jobs:
           CONFIG_PACKAGE_luci-app-diskman=y
           CONFIG_PACKAGE_luci-app-irqbalance=y
           CONFIG_PACKAGE_luci-app-package-manager=y
+          CONFIG_PACKAGE_luci-app-ttyd=y
+          CONFIG_PACKAGE_luci-i18n-ttyd-zh-cn=y
 
           CONFIG_PACKAGE_luci-app-sqm=y
           CONFIG_PACKAGE_sqm-scripts=y
@@ -329,6 +331,8 @@ jobs:
             luci-app-daed \
             luci-app-lucky \
             luci-app-rtp2httpd \
+            luci-app-ttyd \
+            luci-i18n-ttyd-zh-cn \
             luci-app-argon-config \
             luci-app-upnp \
             miniupnpd-nftables \
@@ -432,6 +436,10 @@ jobs:
           echo "===== Argon ====="
           echo "Commit: ${ARGON_COMMIT}"
           echo "Version: ${ARGON_VERSION}"
+
+          echo
+          echo "===== Web Terminal ====="
+          grep -E '^CONFIG_PACKAGE_(luci-app-ttyd|luci-i18n-ttyd-zh-cn)=' .config || true
 
           echo
           echo "===== UPnP / PCP / NAT-PMP ====="
