@@ -1,22 +1,18 @@
-name: ImmortalWrt x86 Latest - Test #3
+name: ImmortalWrt V3 Test 01
 
 on:
-  push:
-    branches:
-      - master
   workflow_dispatch:
 
 jobs:
-  build:
+  validate:
     runs-on: ubuntu-latest
 
     if: github.event.repository.owner.id == github.event.sender.id
 
     permissions:
-      contents: write
-      actions: write
+      contents: read
 
-    name: Build ${{ matrix.target }}
+    name: Validate ImmortalWrt ${{ matrix.target }}
 
     strategy:
       fail-fast: false
@@ -42,7 +38,7 @@ jobs:
         with:
           root-reserve-mb: 4096
           temp-reserve-mb: 1024
-          swap-size-mb: 8192
+          swap-size-mb: 4096
           remove-dotnet: 'true'
           remove-android: 'true'
           remove-haskell: 'true'
@@ -51,7 +47,7 @@ jobs:
 
 
       # ============================================================
-      # 3. Install build dependencies
+      # 3. Install minimum build dependencies
       # ============================================================
 
       - name: Install build dependencies
@@ -77,7 +73,6 @@ jobs:
 
           sudo -E apt-get install -y \
             ack \
-            antlr3 \
             asciidoc \
             autoconf \
             automake \
@@ -94,18 +89,12 @@ jobs:
             device-tree-compiler \
             flex \
             gawk \
-            gcc-multilib \
-            g++-multilib \
             gettext \
-            genisoimage \
             git \
             gperf \
-            haveged \
             help2man \
             intltool \
-            libc6-dev-i386 \
             libelf-dev \
-            libfuse-dev \
             libglib2.0-dev \
             libgmp3-dev \
             libltdl-dev \
@@ -118,16 +107,13 @@ jobs:
             libssl-dev \
             libtool \
             llvm \
-            lrzsz \
+            make \
             ninja-build \
-            p7zip \
-            p7zip-full \
             patch \
             pkgconf \
             python3 \
             python3-pyelftools \
             python3-setuptools \
-            qemu-utils \
             rsync \
             scons \
             squashfs-tools \
@@ -136,7 +122,6 @@ jobs:
             texinfo \
             uglifyjs \
             unzip \
-            vim \
             wget \
             xmlto \
             xxd \
@@ -147,22 +132,7 @@ jobs:
 
 
       # ============================================================
-      # 4. Get current date
-      # ============================================================
-
-      - name: Get current date
-        id: date
-        env:
-          TZ: Asia/Shanghai
-
-        run: |
-          echo "date=$(TZ=Asia/Shanghai date +'%Y.%m.%d-%H%M')" >> "$GITHUB_ENV"
-          echo "date2=$(TZ=Asia/Shanghai date +'%m/%d %Y')" >> "$GITHUB_ENV"
-          echo "date3=$(TZ=Asia/Shanghai date +'%m.%d')" >> "$GITHUB_ENV"
-
-
-      # ============================================================
-      # 5. Clone ImmortalWrt source
+      # 4. Clone ImmortalWrt source
       # ============================================================
 
       - name: Clone ImmortalWrt source
@@ -181,21 +151,32 @@ jobs:
 
           cd openwrt
 
-          echo "ImmortalWrt commit:"
-          git log -1 --oneline
+          echo
+          echo "============================================================"
+          echo "IMMORTALWRT SOURCE"
+          echo "============================================================"
 
-          echo "ImmortalWrt branch:"
+          echo "Repository:"
+          echo "$REPO_URL"
+
+          echo "Branch:"
           git branch --show-current
+
+          echo "Commit:"
+          git log -1 --format='%H'
+
+          echo "Subject:"
+          git log -1 --format='%s'
+
+          echo "============================================================"
 
 
       # ============================================================
-      # 6. Configure upstream third-party sources
+      # 5. Configure upstream feeds
       #
       # IMPORTANT:
       # No kenzok8/small
       # No kenzok8/openwrt-packages
-      #
-      # This is the main difference from Test #2.
       # ============================================================
 
       - name: Configure upstream feeds
@@ -204,23 +185,24 @@ jobs:
         run: |
           set -e
 
-          echo "===== Configure upstream feeds ====="
+          echo "============================================================"
+          echo "CONFIGURE UPSTREAM FEEDS"
+          echo "============================================================"
 
-          # RTP2HTTPD 官方 OpenWrt feed
           sed -i \
             '1i src-git rtp2httpd https://github.com/stackia/rtp2httpd.git' \
             feeds.conf.default
 
-          # 显式打印最终 feeds
           echo
           echo "===== feeds.conf.default ====="
           cat feeds.conf.default
-          echo "=============================="
+
           echo
+          echo "============================================================"
 
 
       # ============================================================
-      # 7. Update official feeds
+      # 6. Update official feeds
       # ============================================================
 
       - name: Update official feeds
@@ -229,33 +211,60 @@ jobs:
         run: |
           set -e
 
+          echo "============================================================"
+          echo "UPDATE ALL FEEDS"
+          echo "============================================================"
+
           ./scripts/feeds update -a
 
-          ./scripts/feeds install -a
+          echo
+          echo "===== Feed directories ====="
+
+          find feeds \
+            -mindepth 1 \
+            -maxdepth 1 \
+            -type d \
+            -printf '%f\n' \
+            | sort
+
+          echo
+          echo "============================================================"
 
 
       # ============================================================
-      # 8. Install upstream third-party packages directly
-      #
-      # OpenClash
-      # PassWall2
-      # DAED
-      # Lucky
-      #
-      # No small feed.
+      # 7. Install official feeds
       # ============================================================
 
-      - name: Install upstream third-party packages
+      - name: Install official feeds
         working-directory: ./openwrt
 
         run: |
           set -e
 
-          echo "===== Installing upstream packages ====="
+          echo "============================================================"
+          echo "INSTALL OFFICIAL FEEDS"
+          echo "============================================================"
 
-          # ----------------------------------------------------------
-          # OpenClash
-          # ----------------------------------------------------------
+          ./scripts/feeds install -a
+
+          echo
+          echo "Official feeds installed."
+          echo "============================================================"
+
+
+      # ============================================================
+      # 8. Install OpenClash
+      # ============================================================
+
+      - name: Install OpenClash
+        working-directory: ./openwrt
+
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "INSTALL OPENCLASH"
+          echo "============================================================"
 
           rm -rf package/feeds/luci/luci-app-openclash
           rm -rf package/openclash
@@ -265,10 +274,30 @@ jobs:
             https://github.com/vernesong/OpenClash.git \
             package/openclash
 
+          echo
+          echo "OpenClash commit:"
+          git -C package/openclash log -1 --format='%H'
 
-          # ----------------------------------------------------------
-          # PassWall2
-          # ----------------------------------------------------------
+          echo "OpenClash subject:"
+          git -C package/openclash log -1 --format='%s'
+
+          echo
+          echo "============================================================"
+
+
+      # ============================================================
+      # 9. Install PassWall2
+      # ============================================================
+
+      - name: Install PassWall2
+        working-directory: ./openwrt
+
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "INSTALL PASSWALL2"
+          echo "============================================================"
 
           rm -rf package/feeds/luci/luci-app-passwall2
           rm -rf package/passwall2
@@ -278,15 +307,34 @@ jobs:
             https://github.com/Openwrt-Passwall/openwrt-passwall2.git \
             package/passwall2
 
+          echo
+          echo "PassWall2 commit:"
+          git -C package/passwall2 log -1 --format='%H'
 
-          # ----------------------------------------------------------
-          # DAED
-          #
-          # IMPORTANT:
-          # Do NOT use ImmortalWrt's old package/dae.
-          # QiuSimons upstream package contains the current
-          # DAED/OpenWrt integration.
-          # ----------------------------------------------------------
+          echo "PassWall2 subject:"
+          git -C package/passwall2 log -1 --format='%s'
+
+          echo
+          echo "============================================================"
+
+
+      # ============================================================
+      # 10. Install DAED
+      #
+      # IMPORTANT:
+      # Use QiuSimons upstream repository.
+      # Do not use ImmortalWrt's old package/dae.
+      # ============================================================
+
+      - name: Install DAED
+        working-directory: ./openwrt
+
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "INSTALL DAED"
+          echo "============================================================"
 
           rm -rf package/dae
           rm -rf package/feeds/base/dae
@@ -296,10 +344,38 @@ jobs:
             https://github.com/QiuSimons/luci-app-daed.git \
             package/dae
 
+          echo
+          echo "DAED commit:"
+          git -C package/dae log -1 --format='%H'
 
-          # ----------------------------------------------------------
-          # Lucky
-          # ----------------------------------------------------------
+          echo "DAED subject:"
+          git -C package/dae log -1 --format='%s'
+
+          echo
+          echo "DAED repository structure:"
+          find package/dae \
+            -maxdepth 2 \
+            -type f \
+            | sort \
+            | head -200
+
+          echo
+          echo "============================================================"
+
+
+      # ============================================================
+      # 11. Install Lucky
+      # ============================================================
+
+      - name: Install Lucky
+        working-directory: ./openwrt
+
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "INSTALL LUCKY"
+          echo "============================================================"
 
           rm -rf package/feeds/lucky/luci-app-lucky
           rm -rf package/lucky
@@ -309,33 +385,30 @@ jobs:
             https://github.com/gdy666/luci-app-lucky.git \
             package/lucky
 
+          echo
+          echo "Lucky commit:"
+          git -C package/lucky log -1 --format='%H'
+
+          echo "Lucky subject:"
+          git -C package/lucky log -1 --format='%s'
 
           echo
-          echo "===== Upstream package installation complete ====="
+          echo "============================================================"
 
 
       # ============================================================
-      # 9. Refresh feeds after adding third-party packages
+      # 12. Install Argon
       # ============================================================
 
-      - name: Install feed packages
+      - name: Install Argon
         working-directory: ./openwrt
 
         run: |
           set -e
 
-          ./scripts/feeds install -a
-
-
-      # ============================================================
-      # 10. Get latest Argon theme
-      # ============================================================
-
-      - name: Get latest Argon theme
-        working-directory: ./openwrt
-
-        run: |
-          set -e
+          echo "============================================================"
+          echo "INSTALL ARGON"
+          echo "============================================================"
 
           rm -rf package/feeds/luci/luci-theme-argon
           rm -rf package/feeds/luci/luci-app-argon-config
@@ -353,21 +426,118 @@ jobs:
             https://github.com/jerrykuku/luci-app-argon-config.git \
             package/argon-config
 
+          echo
+          echo "Argon commit:"
+          git -C package/argon log -1 --format='%H'
+
+          echo "Argon subject:"
+          git -C package/argon log -1 --format='%s'
+
+          echo
+          echo "Argon Config commit:"
+          git -C package/argon-config log -1 --format='%H'
+
+          echo "Argon Config subject:"
+          git -C package/argon-config log -1 --format='%s'
+
+          echo
+          echo "============================================================"
+
 
       # ============================================================
-      # 11. Third-party source audit
+      # 13. Refresh feed package index
       #
-      # This step is VERY IMPORTANT.
-      #
-      # Before compilation we record:
-      #   - repository
-      #   - commit
-      #   - package version
-      #
-      # So we no longer need to dig through huge build logs.
+      # This is intentionally done AFTER all upstream repositories
+      # have been inserted.
       # ============================================================
 
-      - name: Third-party source audit
+      - name: Refresh feed package index
+        working-directory: ./openwrt
+
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "REFRESH PACKAGE INDEX"
+          echo "============================================================"
+
+          ./scripts/feeds install -a
+
+          echo
+          echo "============================================================"
+
+
+      # ============================================================
+      # 14. Package inventory
+      # ============================================================
+
+      - name: Package inventory
+        working-directory: ./openwrt
+
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "PACKAGE INVENTORY"
+          echo "============================================================"
+
+          echo
+          echo "===== OpenClash ====="
+          find package/openclash \
+            -maxdepth 3 \
+            -type f \
+            | sort \
+            | head -100
+
+          echo
+          echo "===== PassWall2 ====="
+          find package/passwall2 \
+            -maxdepth 3 \
+            -type f \
+            | sort \
+            | head -100
+
+          echo
+          echo "===== DAED ====="
+          find package/dae \
+            -maxdepth 4 \
+            -type f \
+            | sort \
+            | head -150
+
+          echo
+          echo "===== Lucky ====="
+          find package/lucky \
+            -maxdepth 3 \
+            -type f \
+            | sort \
+            | head -100
+
+          echo
+          echo "===== Argon ====="
+          find package/argon \
+            -maxdepth 3 \
+            -type f \
+            | sort \
+            | head -100
+
+          echo
+          echo "===== Argon Config ====="
+          find package/argon-config \
+            -maxdepth 3 \
+            -type f \
+            | sort \
+            | head -100
+
+          echo
+          echo "============================================================"
+
+
+      # ============================================================
+      # 15. Detect duplicate package definitions
+      # ============================================================
+
+      - name: Detect duplicate package definitions
         working-directory: ./openwrt
 
         shell: bash
@@ -376,691 +546,422 @@ jobs:
           set -e
 
           echo "============================================================"
-          echo "THIRD-PARTY SOURCE AUDIT"
+          echo "DUPLICATE PACKAGE DEFINITION CHECK"
           echo "============================================================"
 
-          echo
-          echo "===== ImmortalWrt ====="
-          git log -1 --format='commit: %H%nsubject: %s'
+          TMPFILE=$(mktemp)
+
+          find package feeds \
+            -type f \
+            \( -name 'Makefile' -o -name '*.mk' \) \
+            -print0 \
+            | xargs -0 grep -H -E \
+              '^[[:space:]]*define[[:space:]]+Package/' \
+            > "$TMPFILE" || true
 
           echo
-          echo "===== OpenClash ====="
-          if [ -d package/openclash/.git ]; then
-            git -C package/openclash log -1 --format='commit: %H%nsubject: %s'
-            grep -R -E '^(PKG_VERSION|PKG_RELEASE)[:?]?=' \
-              package/openclash 2>/dev/null | head -20 || true
-          fi
+          echo "Potential package definitions:"
+          cat "$TMPFILE" || true
 
           echo
-          echo "===== PassWall2 ====="
-          if [ -d package/passwall2/.git ]; then
-            git -C package/passwall2 log -1 --format='commit: %H%nsubject: %s'
-            grep -R -E '^(PKG_VERSION|PKG_RELEASE)[:?]?=' \
-              package/passwall2 2>/dev/null | head -20 || true
-          fi
+          echo "===== Known packages ====="
+
+          for pkg in \
+            luci-app-openclash \
+            luci-app-passwall2 \
+            luci-app-daed \
+            daed \
+            luci-app-lucky \
+            luci-app-rtp2httpd \
+            luci-theme-argon \
+            luci-app-argon-config
+          do
+            echo
+            echo ">>> $pkg"
+
+            grep -R -n \
+              --include='Makefile' \
+              --include='*.mk' \
+              -E "Package/${pkg}([[:space:]]|$)" \
+              package feeds \
+              2>/dev/null || true
+          done
+
+          rm -f "$TMPFILE"
 
           echo
-          echo "===== DAED ====="
-          if [ -d package/dae/.git ]; then
-            git -C package/dae log -1 --format='commit: %H%nsubject: %s'
-            grep -R -E '^(PKG_VERSION|PKG_RELEASE|PKG_SOURCE_VERSION)[:?]?=' \
-              package/dae 2>/dev/null | head -30 || true
-          fi
-
-          echo
-          echo "===== Lucky ====="
-          if [ -d package/lucky/.git ]; then
-            git -C package/lucky log -1 --format='commit: %H%nsubject: %s'
-            grep -R -E '^(PKG_VERSION|PKG_RELEASE)[:?]?=' \
-              package/lucky 2>/dev/null | head -20 || true
-          fi
-
-          echo
-          echo "===== RTP2HTTPD ====="
-          if [ -d feeds/rtp2httpd/.git ]; then
-            git -C feeds/rtp2httpd log -1 --format='commit: %H%nsubject: %s'
-            grep -R -E '^(PKG_VERSION|PKG_RELEASE)[:?]?=' \
-              feeds/rtp2httpd 2>/dev/null | head -20 || true
-          fi
-
-          echo
-          echo "===== Argon ====="
-          if [ -d package/argon/.git ]; then
-            git -C package/argon log -1 --format='commit: %H%nsubject: %s'
-            grep -R -E '^(PKG_VERSION|PKG_RELEASE)[:?]?=' \
-              package/argon 2>/dev/null | head -20 || true
-          fi
-
-          echo
-          echo "===== Argon Config ====="
-          if [ -d package/argon-config/.git ]; then
-            git -C package/argon-config log -1 --format='commit: %H%nsubject: %s'
-            grep -R -E '^(PKG_VERSION|PKG_RELEASE)[:?]?=' \
-              package/argon-config 2>/dev/null | head -20 || true
-          fi
-
-          echo
-          echo "============================================================"
-          echo "END THIRD-PARTY SOURCE AUDIT"
           echo "============================================================"
 
 
       # ============================================================
-      # 12. Custom configuration
+      # 16. Check selected package Makefiles
       # ============================================================
 
-      - name: Custom configure file
+      - name: Check package Makefiles
+        working-directory: ./openwrt
+
+        shell: bash
+
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "PACKAGE MAKEFILE CHECK"
+          echo "============================================================"
+
+          FAILED=0
+
+          check_makefile() {
+            NAME="$1"
+            FILE="$2"
+
+            echo
+            echo ">>> Checking $NAME"
+            echo "Path: $FILE"
+
+            if [ ! -f "$FILE" ]; then
+              echo "ERROR: Makefile not found."
+              FAILED=1
+              return
+            fi
+
+            echo "OK: Makefile exists."
+
+            echo "--- Package definitions ---"
+            grep -n \
+              -E '^[[:space:]]*define[[:space:]]+Package/' \
+              "$FILE" \
+              || true
+
+            echo "--- Dependencies ---"
+            grep -n \
+              -E 'DEPENDS[+:]?=' \
+              "$FILE" \
+              || true
+          }
+
+          check_makefile \
+            "OpenClash" \
+            "package/openclash/luci-app-openclash/Makefile"
+
+          check_makefile \
+            "PassWall2" \
+            "package/passwall2/luci-app-passwall2/Makefile"
+
+          if [ -f package/dae/luci-app-daed/Makefile ]; then
+            check_makefile \
+              "DAED" \
+              "package/dae/luci-app-daed/Makefile"
+          elif [ -f package/dae/Makefile ]; then
+            check_makefile \
+              "DAED" \
+              "package/dae/Makefile"
+          else
+            echo
+            echo "WARNING: DAED Makefile location was not found."
+            echo "The repository structure must be inspected."
+            FAILED=1
+          fi
+
+          check_makefile \
+            "Lucky" \
+            "package/lucky/luci-app-lucky/Makefile"
+
+          check_makefile \
+            "Argon" \
+            "package/argon/luci-theme-argon/Makefile"
+
+          check_makefile \
+            "Argon Config" \
+            "package/argon-config/Makefile"
+
+          if [ "$FAILED" -ne 0 ]; then
+            echo
+            echo "============================================================"
+            echo "PACKAGE MAKEFILE CHECK FAILED"
+            echo "============================================================"
+            exit 1
+          fi
+
+          echo
+          echo "============================================================"
+          echo "PACKAGE MAKEFILE CHECK PASSED"
+          echo "============================================================"
+
+
+      # ============================================================
+      # 17. Dependency inspection
+      # ============================================================
+
+      - name: Dependency inspection
+        working-directory: ./openwrt
+
+        shell: bash
+
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "DEPENDENCY INSPECTION"
+          echo "============================================================"
+
+          echo
+          echo "===== OpenClash dependencies ====="
+          grep -R -n \
+            --include='Makefile' \
+            -E 'DEPENDS[+:]?=' \
+            package/openclash \
+            2>/dev/null || true
+
+          echo
+          echo "===== PassWall2 dependencies ====="
+          grep -R -n \
+            --include='Makefile' \
+            -E 'DEPENDS[+:]?=' \
+            package/passwall2 \
+            2>/dev/null || true
+
+          echo
+          echo "===== DAED dependencies ====="
+          grep -R -n \
+            --include='Makefile' \
+            -E 'DEPENDS[+:]?=' \
+            package/dae \
+            2>/dev/null || true
+
+          echo
+          echo "===== Lucky dependencies ====="
+          grep -R -n \
+            --include='Makefile' \
+            -E 'DEPENDS[+:]?=' \
+            package/lucky \
+            2>/dev/null || true
+
+          echo
+          echo "===== RTP2HTTPD dependencies ====="
+          grep -R -n \
+            --include='Makefile' \
+            -E 'DEPENDS[+:]?=' \
+            feeds/rtp2httpd \
+            2>/dev/null || true
+
+          echo
+          echo "============================================================"
+
+
+      # ============================================================
+      # 18. Build minimal validation configuration
+      #
+      # We deliberately DO NOT enable the complete V3 firmware
+      # configuration here.
+      #
+      # This stage only tests whether the source tree and package
+      # definitions can successfully pass Kconfig/defconfig.
+      # ============================================================
+
+      - name: Generate minimal validation config
         working-directory: ./openwrt
 
         run: |
           set -e
 
-          rm -f ./.config*
-          touch ./.config
+          echo "============================================================"
+          echo "GENERATE MINIMAL VALIDATION CONFIG"
+          echo "============================================================"
 
+          rm -f .config .config.old
 
-          # ----------------------------------------------------------
-          # System timezone
-          # ----------------------------------------------------------
-
-          mkdir -p package/base-files/files/etc/config
-
-          if [ -f package/base-files/files/etc/config/system ]; then
-
-            sed -i \
-              "s/^[[:space:]]*option timezone.*/	option timezone 'CST-8'/" \
-              package/base-files/files/etc/config/system
-
-            sed -i \
-              "s/^[[:space:]]*option zonename.*/	option zonename 'Asia\/Shanghai'/" \
-              package/base-files/files/etc/config/system
-
-          else
-
-            cat > package/base-files/files/etc/config/system <<'EOF'
-          config system
-                  option hostname 'OpenWrt'
-                  option timezone 'CST-8'
-                  option zonename 'Asia/Shanghai'
-          EOF
-
-          fi
-
-
-          # ----------------------------------------------------------
-          # Target
-          # ----------------------------------------------------------
-
-          cat >> .config <<'EOF'
+          cat > .config <<'EOF'
           CONFIG_TARGET_x86=y
           CONFIG_TARGET_x86_64=y
           CONFIG_TARGET_x86_64_Generic=y
 
-          CONFIG_TARGET_KERNEL_PARTSIZE=128
-          CONFIG_TARGET_ROOTFS_PARTSIZE=640
-
-          CONFIG_TARGET_IMAGES_GZIP=y
-          CONFIG_EFI_IMAGES=y
-          EOF
-
-
-          # ----------------------------------------------------------
-          # IPv6
-          # ----------------------------------------------------------
-
-          cat >> .config <<'EOF'
-          CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y
-          CONFIG_PACKAGE_ipv6helper=y
-          CONFIG_PACKAGE_odhcp6c=y
-          CONFIG_PACKAGE_odhcpd-ipv6only=y
-          CONFIG_PACKAGE_luci-proto-ipv6=y
-          CONFIG_PACKAGE_ip6tables=y
-          CONFIG_PACKAGE_kmod-nft-nat6=y
-          EOF
-
-
-          # ----------------------------------------------------------
-          # Bonding
-          # ----------------------------------------------------------
-
-          cat >> .config <<'EOF'
-          CONFIG_PACKAGE_kmod-bonding=y
-          CONFIG_PACKAGE_proto-bonding=y
-          CONFIG_PACKAGE_luci-proto-bonding=y
-          EOF
-
-
-          # ----------------------------------------------------------
-          # LuCI
-          # ----------------------------------------------------------
-
-          cat >> .config <<'EOF'
           CONFIG_PACKAGE_luci=y
-          CONFIG_PACKAGE_luci-app-diskman=y
-          CONFIG_PACKAGE_luci-app-irqbalance=y
-          CONFIG_PACKAGE_luci-app-package-manager=y
 
-          CONFIG_PACKAGE_luci-app-filebrowser=n
-          CONFIG_PACKAGE_luci-app-taskplan=n
-          EOF
-
-
-          # ----------------------------------------------------------
-          # SQM / CAKE
-          # ----------------------------------------------------------
-
-          cat >> .config <<'EOF'
-          CONFIG_PACKAGE_luci-app-sqm=y
-          CONFIG_PACKAGE_sqm-scripts=y
-          CONFIG_PACKAGE_kmod-sched-cake=y
-          CONFIG_PACKAGE_kmod-ifb=y
-          CONFIG_PACKAGE_tc-full=y
-          EOF
-
-
-          # ----------------------------------------------------------
-          # IPTV
-          # ----------------------------------------------------------
-
-          cat >> .config <<'EOF'
-          CONFIG_PACKAGE_luci-app-rtp2httpd=y
-          EOF
-
-
-          # ----------------------------------------------------------
-          # Proxy
-          # ----------------------------------------------------------
-
-          cat >> .config <<'EOF'
-          CONFIG_PACKAGE_luci-app-ssr-plus=n
-          CONFIG_PACKAGE_luci-app-passwall=n
-          CONFIG_PACKAGE_luci-app-passwall2=y
           CONFIG_PACKAGE_luci-app-openclash=y
-          CONFIG_PACKAGE_luci-app-mihomo=n
-          CONFIG_PACKAGE_luci-app-homeproxy=n
-          EOF
-
-
-          # ----------------------------------------------------------
-          # DAED / eBPF / BTF
-          #
-          # Based on upstream luci-app-daed requirements.
-          # ----------------------------------------------------------
-
-          cat >> .config <<'EOF'
-          CONFIG_DEVEL=y
-
-          CONFIG_KERNEL_DEBUG_INFO=y
-          CONFIG_KERNEL_DEBUG_INFO_REDUCED=n
-          CONFIG_KERNEL_DEBUG_INFO_BTF=y
-
-          CONFIG_KERNEL_CGROUPS=y
-          CONFIG_KERNEL_CGROUP_BPF=y
-          CONFIG_KERNEL_BPF_EVENTS=y
-
-          CONFIG_BPF_TOOLCHAIN_HOST=y
-          CONFIG_KERNEL_XDP_SOCKETS=y
-
-          CONFIG_PACKAGE_kmod-xdp-sockets-diag=y
-
-          CONFIG_PACKAGE_daed=y
+          CONFIG_PACKAGE_luci-app-passwall2=y
           CONFIG_PACKAGE_luci-app-daed=y
-
-          CONFIG_PACKAGE_kmod-nft-tproxy=y
-          CONFIG_PACKAGE_kmod-nft-socket=y
-          CONFIG_PACKAGE_kmod-nft-compat=y
-          CONFIG_PACKAGE_nftables=y
-          CONFIG_PACKAGE_ip-full=y
-          EOF
-
-
-          # ----------------------------------------------------------
-          # VPN
-          # ----------------------------------------------------------
-
-          cat >> .config <<'EOF'
-          CONFIG_PACKAGE_luci-app-softethervpn=n
-
-          CONFIG_PACKAGE_luci-app-openvpn=y
-          CONFIG_PACKAGE_luci-app-openvpn-server=y
-          CONFIG_PACKAGE_openvpn-easy-rsa=y
-
-          CONFIG_PACKAGE_netbird=n
-
-          CONFIG_PACKAGE_wireguard-tools=y
-          CONFIG_PACKAGE_kmod-wireguard=y
-          CONFIG_PACKAGE_luci-app-wireguard=y
-          CONFIG_PACKAGE_luci-proto-wireguard=y
-          EOF
-
-
-          # ----------------------------------------------------------
-          # Lucky
-          # ----------------------------------------------------------
-
-          cat >> .config <<'EOF'
           CONFIG_PACKAGE_luci-app-lucky=y
-          EOF
-
-
-          # ----------------------------------------------------------
-          # Argon
-          # ----------------------------------------------------------
-
-          cat >> .config <<'EOF'
+          CONFIG_PACKAGE_luci-app-rtp2httpd=y
           CONFIG_PACKAGE_luci-theme-argon=y
           EOF
 
+          sed -i 's/^[[:space:]]*//' .config
 
-          # ----------------------------------------------------------
-          # Common packages
-          # ----------------------------------------------------------
+          echo
+          echo "===== Initial .config ====="
+          cat .config
 
-          cat >> .config <<'EOF'
-          CONFIG_PACKAGE_curl=y
-          CONFIG_PACKAGE_htop=y
-          CONFIG_PACKAGE_nano=y
-          CONFIG_PACKAGE_screen=y
-          CONFIG_PACKAGE_tree=y
-
-          CONFIG_PACKAGE_vim-fuller=n
-          CONFIG_PACKAGE_wget=y
-
-          CONFIG_PACKAGE_acme=y
-          CONFIG_PACKAGE_acme-dnsapi=y
-
-          CONFIG_PACKAGE_haproxy=y
-          CONFIG_PACKAGE_socat=y
-          CONFIG_SOCAT_SSL=y
-
-          CONFIG_SING_BOX_WITH_ECH=y
-          CONFIG_PACKAGE_sing-box=y
-
-          CONFIG_PACKAGE_chinadns-ng=y
-
-          CONFIG_PACKAGE_open-vm-tools=y
-
-          CONFIG_PACKAGE_iperf3=y
-          CONFIG_PACKAGE_iftop=y
-          CONFIG_PACKAGE_tcpdump=y
-          CONFIG_PACKAGE_pv=y
-          CONFIG_PACKAGE_bind-host=y
-          CONFIG_PACKAGE_firewall4=y
-          CONFIG_PACKAGE_dns2socks=y
-          CONFIG_PACKAGE_tcping=y
-          CONFIG_PACKAGE_geoview=y
-          CONFIG_PACKAGE_irqbalance=y
-          EOF
-
-
-          # ----------------------------------------------------------
-          # Normalize config
-          # ----------------------------------------------------------
-
-          sed -i 's/^[ \t]*//g' ./.config
+          echo
+          echo "===== Running make defconfig ====="
 
           make defconfig
 
+          echo
+          echo "===== Final selected packages ====="
+
+          grep -E \
+            '^CONFIG_PACKAGE_(luci-app-openclash|luci-app-passwall2|luci-app-daed|daed|luci-app-lucky|luci-app-rtp2httpd|luci-theme-argon|luci-app-argon-config)=' \
+            .config \
+            || true
 
           echo
           echo "============================================================"
-          echo "DAED KERNEL DEPENDENCY CHECK"
-          echo "============================================================"
-
-          grep -E \
-            'CONFIG_(DEVEL|DEBUG_INFO|DEBUG_INFO_BTF|DEBUG_INFO_BTF_MODULES|BPF|BPF_SYSCALL|KPROBES|KALLSYMS|CGROUPS|CGROUP_BPF|BPF_EVENTS|XDP_SOCKETS)' \
-            .config || true
-
-          echo "============================================================"
-
-
-          echo
-          echo "============================================================"
-          echo "SELECTED THIRD-PARTY PACKAGES"
-          echo "============================================================"
-
-          grep -E \
-            '^CONFIG_PACKAGE_(luci-app-openclash|luci-app-passwall2|daed|luci-app-daed|luci-app-lucky|luci-app-rtp2httpd|luci-theme-argon)=' \
-            .config || true
-
-          echo "============================================================"
 
 
       # ============================================================
-      # 13. Download source packages
+      # 19. Check unresolved package symbols
       # ============================================================
 
-      - name: Download sources
+      - name: Check unresolved package symbols
         working-directory: ./openwrt
 
-        run: |
-          set -e
-
-          make download -j8
-
-
-      # ============================================================
-      # 14. Compile firmware
-      #
-      # First attempt:
-      #   parallel build
-      #
-      # If failed:
-      #   automatically run -j1 V=sc
-      #
-      # This avoids losing the real error inside huge logs.
-      # ============================================================
-
-      - name: Compile firmware
-        working-directory: ./openwrt
         shell: bash
 
         run: |
-          set -o pipefail
-
-          echo "============================================================"
-          echo "START PARALLEL BUILD"
-          echo "============================================================"
-
-          set +e
-
-          make -j$(nproc) V=s 2>&1 | tee build.log
-
-          BUILD_STATUS=${PIPESTATUS[0]}
-
           set -e
 
-          if [ "$BUILD_STATUS" -eq 0 ]; then
+          echo "============================================================"
+          echo "CHECK UNRESOLVED PACKAGE SYMBOLS"
+          echo "============================================================"
+
+          echo
+          echo "===== Selected third-party packages ====="
+
+          grep -E \
+            '^CONFIG_PACKAGE_(luci-app-openclash|luci-app-passwall2|luci-app-daed|daed|luci-app-lucky|luci-app-rtp2httpd|luci-theme-argon|luci-app-argon-config)=' \
+            .config \
+            || true
+
+          echo
+          echo "===== Search for explicit =m / =y / =n states ====="
+
+          for pkg in \
+            luci-app-openclash \
+            luci-app-passwall2 \
+            luci-app-daed \
+            daed \
+            luci-app-lucky \
+            luci-app-rtp2httpd \
+            luci-theme-argon \
+            luci-app-argon-config
+          do
+            SYMBOL="CONFIG_PACKAGE_${pkg}"
+
+            if grep -q "^${SYMBOL}=" .config; then
+              grep "^${SYMBOL}=" .config
+            else
+              echo "WARNING: $SYMBOL is not present in .config"
+            fi
+          done
+
+          echo
+          echo "============================================================"
+
+
+      # ============================================================
+      # 20. Search for known problematic dependencies
+      # ============================================================
+
+      - name: Search dependency availability
+        working-directory: ./openwrt
+
+        shell: bash
+
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "DEPENDENCY AVAILABILITY CHECK"
+          echo "============================================================"
+
+          check_symbol() {
+            NAME="$1"
+
             echo
-            echo "============================================================"
-            echo "BUILD SUCCESS"
-            echo "============================================================"
-            exit 0
-          fi
+            echo ">>> $NAME"
+
+            grep -R -n \
+              --include='Config.in' \
+              --include='*.in' \
+              --include='Makefile' \
+              "$NAME" \
+              package feeds \
+              2>/dev/null \
+              | head -30 \
+              || true
+          }
+
+          check_symbol "vmlinux-btf"
+          check_symbol "BPF_TOOLCHAIN_HOST"
+          check_symbol "DEBUG_INFO_BTF"
+          check_symbol "kmod-nft-tproxy"
+          check_symbol "kmod-nft-socket"
+          check_symbol "kmod-xdp-sockets-diag"
+          check_symbol "sing-box"
+          check_symbol "chinadns-ng"
 
           echo
           echo "============================================================"
-          echo "PARALLEL BUILD FAILED"
-          echo "Running diagnostic single-threaded build..."
-          echo "============================================================"
-
-          echo
-          echo "===== Last 200 lines from failed parallel build ====="
-          tail -n 200 build.log || true
-
-          echo
-          echo "===== Error lines detected ====="
-          grep -n -E \
-            '(^|[[:space:]])(ERROR:|Error [0-9]+|error:|fatal error:|FAILED|failed to build|build failed)' \
-            build.log \
-            | tail -n 100 || true
-
-          echo
-          echo "============================================================"
-          echo "SINGLE-THREADED DIAGNOSTIC BUILD"
-          echo "============================================================"
-
-          set +e
-
-          make -j1 V=sc 2>&1 | tee build-debug.log
-
-          DEBUG_STATUS=${PIPESTATUS[0]}
-
-          set -e
-
-          echo
-          echo "===== Last 300 lines from diagnostic build ====="
-          tail -n 300 build-debug.log || true
-
-          echo
-          echo "===== Diagnostic error lines ====="
-          grep -n -E \
-            '(^|[[:space:]])(ERROR:|Error [0-9]+|error:|fatal error:|FAILED|failed to build|build failed)' \
-            build-debug.log \
-            | tail -n 150 || true
-
-          exit "$DEBUG_STATUS"
 
 
       # ============================================================
-      # 15. Compress logs
+      # 21. Final source tree summary
       # ============================================================
 
-      - name: Compress build logs
-        if: always()
-        working-directory: ./openwrt
-
-        shell: bash
-
-        run: |
-          set +e
-
-          if [ -f build.log ]; then
-            gzip -9 -f build.log
-          fi
-
-          if [ -f build-debug.log ]; then
-            gzip -9 -f build-debug.log
-          fi
-
-
-      # ============================================================
-      # 16. Upload complete logs
-      # ============================================================
-
-      - name: Upload build logs
-        if: always()
-        uses: actions/upload-artifact@v4
-
-        with:
-          name: openwrt-build-logs-${{ env.date }}
-          path: |
-            ./openwrt/build.log.gz
-            ./openwrt/build-debug.log.gz
-          if-no-files-found: warn
-          retention-days: 14
-
-
-      # ============================================================
-      # 17. Get kernel version
-      # ============================================================
-
-      - name: Get kernel version
-        if: success()
-        working-directory: ./openwrt
-
-        shell: bash
-
-        run: |
-          set -e
-
-          KERNEL_MAKEFILE=$(find build_dir \
-            -path '*/linux-x86_64/linux-*/Makefile' \
-            -type f \
-            | head -1)
-
-          if [ -z "$KERNEL_MAKEFILE" ]; then
-            echo "ERROR: Linux kernel Makefile not found."
-            exit 1
-          fi
-
-          KERNEL_DIR=$(dirname "$KERNEL_MAKEFILE")
-
-          VERSION=$(grep '^VERSION = ' "$KERNEL_MAKEFILE" | awk '{print $3}')
-          PATCHLEVEL=$(grep '^PATCHLEVEL = ' "$KERNEL_MAKEFILE" | awk '{print $3}')
-          SUBLEVEL=$(grep '^SUBLEVEL = ' "$KERNEL_MAKEFILE" | awk '{print $3}')
-
-          KERNEL_VERSION="${VERSION}.${PATCHLEVEL}.${SUBLEVEL}"
-
-          echo "Kernel source:"
-          echo "$KERNEL_DIR"
-
-          echo "Kernel version:"
-          echo "$KERNEL_VERSION"
-
-          echo "KERNEL_VERSION=$KERNEL_VERSION" >> "$GITHUB_ENV"
-
-
-      # ============================================================
-      # 18. Prepare artifact
-      # ============================================================
-
-      - name: Prepare artifact
-        if: success()
+      - name: Final validation summary
         working-directory: ./openwrt
 
         run: |
           set -e
 
-          mkdir -p artifact/firmware
-          mkdir -p artifact/package
-          mkdir -p artifact/buildinfo
+          echo
+          echo "################################################################"
+          echo "# IMMORTALWRT V3 TEST 01 FINAL SUMMARY"
+          echo "################################################################"
 
-          find ./bin/targets/ \
-            -type f \
-            -name "openwrt-x86-64-generic-kernel.bin" \
-            -delete
+          echo
+          echo "===== ImmortalWrt ====="
+          git log -1 --format='commit: %H'
+          git log -1 --format='subject: %s'
 
-          find ./bin/targets/ \
-            -type f \
-            -name "openwrt-x86-64-generic-squashfs-rootfs.img.gz" \
-            -delete
+          echo
+          echo "===== Third-party repositories ====="
 
-          find ./bin/targets/ \
-            -type d \
-            -name "packages" \
-            -prune \
-            -exec rm -rf {} +
+          for repo in \
+            package/openclash \
+            package/passwall2 \
+            package/dae \
+            package/lucky \
+            package/argon \
+            package/argon-config \
+            feeds/rtp2httpd
+          do
+            echo
+            echo ">>> $repo"
 
-          find ./bin/targets/ \
-            -type f \
-            -name "*combined-efi.img.gz" \
-            -exec cp -f {} artifact/firmware/ \;
+            if [ -d "$repo/.git" ]; then
+              git -C "$repo" log -1 --format='commit: %H'
+              git -C "$repo" log -1 --format='subject: %s'
+            else
+              echo "WARNING: Git repository metadata not found."
+            fi
+          done
 
-          find ./bin/packages/ \
-            -type f \
-            -name "*.ipk" \
-            -exec cp -f {} artifact/package/ \;
+          echo
+          echo "===== Selected packages ====="
 
-          find ./bin/targets/ \
-            -type f \
-            \( -name "*.buildinfo" -o -name "*.manifest" \) \
-            -exec cp -f {} artifact/buildinfo/ \;
+          grep -E \
+            '^CONFIG_PACKAGE_(luci-app-openclash|luci-app-passwall2|luci-app-daed|daed|luci-app-lucky|luci-app-rtp2httpd|luci-theme-argon|luci-app-argon-config)=' \
+            .config \
+            || true
 
+          echo
+          echo "===== Source tree size ====="
+          du -sh . || true
 
-      # ============================================================
-      # 19. Deliver buildinfo
-      # ============================================================
+          echo
+          echo "################################################################"
+          echo "# TEST 01 COMPLETED"
+          echo "################################################################"
 
-      - name: Deliver buildinfo
-        if: success()
-        uses: actions/upload-artifact@v4
-
-        with:
-          name: ${{ env.date }}.ImmortalWRT.x86.buildinfo.25.12
-          path: ./openwrt/artifact/buildinfo/
-          retention-days: 30
-
-
-      # ============================================================
-      # 20. Deliver packages
-      # ============================================================
-
-      - name: Deliver packages
-        if: success()
-        uses: actions/upload-artifact@v4
-
-        with:
-          name: ${{ env.date }}.ImmortalWRT.x86.package.25.12
-          path: ./openwrt/artifact/package/
-          retention-days: 30
-
-
-      # ============================================================
-      # 21. Deliver firmware
-      # ============================================================
-
-      - name: Deliver firmware
-        if: success()
-        uses: actions/upload-artifact@v4
-
-        with:
-          name: ${{ env.date }}.ImmortalWRT.x86.firmware.25.12
-          path: ./openwrt/artifact/firmware/
-          retention-days: 30
-
-
-      # ============================================================
-      # 22. Create GitHub Release
-      # ============================================================
-
-      - name: Create GitHub Release
-        if: success()
-        uses: softprops/action-gh-release@v2
-
-        with:
-          tag_name: OpenWrt-${{ env.date }}
-
-          name: OpenWrt 25.12 x86_64 - ${{ env.date }}
-
-          body: |
-            ## ImmortalWrt 25.12 x86_64
-
-            **固件内核：** ${{ env.KERNEL_VERSION }}
-
-            **编译时间：** ${{ env.date }}（北京时间）
-
-            **目标平台：** x86_64 Generic
-
-            **固件格式：** EFI
-
-            **主要组件：**
-            - OpenClash
-            - PassWall2
-            - DAED
-            - SQM / CAKE
-            - WireGuard
-            - OpenVPN
-            - Lucky
-            - RTP2HTTPD
-            - Argon Theme
-
-            **源码：**
-            ImmortalWrt openwrt-25.12
-
-            **第三方软件源策略：**
-            Direct upstream repositories
-
-            **特别说明：**
-            本版本测试目标为逐步摆脱第三方聚合软件源，
-            直接使用各项目 upstream source。
-
-            > 本 Release 为 GitHub Actions 自动编译发布。
-
-          files: |
-            ./openwrt/artifact/firmware/*
-            ./openwrt/artifact/buildinfo/*
-
-          draft: false
-          prerelease: false
-          generate_release_notes: false
-
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-
-      # ============================================================
-      # 23. Delete old workflow runs
-      # ============================================================
-
-      - name: Delete old workflow runs
-        if: always()
-        uses: Mattraks/delete-workflow-runs@v2
-
-        continue-on-error: true
-
-        with:
-          token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          retain_days: 20
-          keep_minimum_runs: 3
