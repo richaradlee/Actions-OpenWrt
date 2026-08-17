@@ -312,6 +312,23 @@ jobs:
           echo "DEFCONFIG COMPLETED"
           echo "============================================================"
 
+      - name: Diagnose Argon package
+        working-directory: ./openwrt
+        shell: bash
+        run: |
+          set -e
+          echo "===== Argon package files ====="
+          find package/argon -maxdepth 2 -type f | sort | head -50
+          echo
+          echo "===== Argon Makefile ====="
+          sed -n '1,120p' package/argon/Makefile
+          echo
+          echo "===== Argon symbols ====="
+          grep -R -n "luci-theme-argon" package/argon package/argon-config feeds/luci 2>/dev/null | head -100 || true
+          echo
+          echo "===== Config symbols ====="
+          grep -E 'luci-theme-argon|argon-config' .config .config.requested 2>/dev/null || true
+      
       # 11. Audit defconfig
       - name: Audit defconfig changes
         working-directory: ./openwrt
