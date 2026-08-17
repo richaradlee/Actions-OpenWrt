@@ -1,4 +1,4 @@
-name: ImmortalWrt V3 Test 03
+name: ImmortalWrt V3 Test 04
 
 on:
   workflow_dispatch:
@@ -165,7 +165,7 @@ jobs:
 
 
       # ============================================================
-      # 5. Configure feeds
+      # 5. Configure upstream feeds
       # ============================================================
 
       - name: Configure upstream feeds
@@ -178,19 +178,12 @@ jobs:
             '1i src-git rtp2httpd https://github.com/stackia/rtp2httpd.git' \
             feeds.conf.default
 
-          echo
-          echo "============================================================"
-          echo "FEEDS CONFIGURATION"
-          echo "============================================================"
-
+          echo "===== feeds.conf.default ====="
           cat feeds.conf.default
-
-          echo
-          echo "============================================================"
 
 
       # ============================================================
-      # 6. Update official feeds
+      # 6. Update feeds
       # ============================================================
 
       - name: Update feeds
@@ -201,37 +194,36 @@ jobs:
 
           ./scripts/feeds update -a
 
-
-      # ============================================================
-      # 7. Install official feed packages
-      #
-      # IMPORTANT:
-      # Third-party packages are installed later.
-      # ============================================================
-
-      - name: Install official feed packages
-        working-directory: ./openwrt
-
-        run: |
-          set -e
+          echo
+          echo "===== Feed update completed ====="
 
           ./scripts/feeds install -a
 
+          echo
+          echo "===== Feed installation completed ====="
+
 
       # ============================================================
-      # 8. Install OpenClash
+      # 7. Install third-party packages
       # ============================================================
 
-      - name: Install OpenClash
+      - name: Install third-party packages
         working-directory: ./openwrt
 
         run: |
           set -e
 
+          echo "============================================================"
+          echo "INSTALL THIRD-PARTY PACKAGES"
+          echo "============================================================"
+
+
+          # ==========================================================
+          # OpenClash
+          # ==========================================================
+
           echo
-          echo "============================================================"
-          echo "INSTALL OPENCLASH"
-          echo "============================================================"
+          echo "===== OpenClash ====="
 
           rm -rf package/feeds/luci/luci-app-openclash
           rm -rf package/openclash
@@ -241,29 +233,13 @@ jobs:
             https://github.com/vernesong/OpenClash.git \
             package/openclash
 
-          echo
-          echo "OpenClash repository:"
-          git -C package/openclash log -1 --format='commit: %H'
-          git -C package/openclash log -1 --format='subject: %s'
+
+          # ==========================================================
+          # PassWall2
+          # ==========================================================
 
           echo
-          echo "============================================================"
-
-
-      # ============================================================
-      # 9. Install PassWall2
-      # ============================================================
-
-      - name: Install PassWall2
-        working-directory: ./openwrt
-
-        run: |
-          set -e
-
-          echo
-          echo "============================================================"
-          echo "INSTALL PASSWALL2"
-          echo "============================================================"
+          echo "===== PassWall2 ====="
 
           rm -rf package/feeds/luci/luci-app-passwall2
           rm -rf package/passwall2
@@ -273,29 +249,13 @@ jobs:
             https://github.com/Openwrt-Passwall/openwrt-passwall2.git \
             package/passwall2
 
-          echo
-          echo "PassWall2 repository:"
-          git -C package/passwall2 log -1 --format='commit: %H'
-          git -C package/passwall2 log -1 --format='subject: %s'
+
+          # ==========================================================
+          # DAED
+          # ==========================================================
 
           echo
-          echo "============================================================"
-
-
-      # ============================================================
-      # 10. Install DAED
-      # ============================================================
-
-      - name: Install DAED
-        working-directory: ./openwrt
-
-        run: |
-          set -e
-
-          echo
-          echo "============================================================"
-          echo "INSTALL DAED"
-          echo "============================================================"
+          echo "===== DAED ====="
 
           rm -rf package/dae
           rm -rf package/feeds/base/dae
@@ -305,29 +265,13 @@ jobs:
             https://github.com/QiuSimons/luci-app-daed.git \
             package/dae
 
-          echo
-          echo "DAED repository:"
-          git -C package/dae log -1 --format='commit: %H'
-          git -C package/dae log -1 --format='subject: %s'
+
+          # ==========================================================
+          # Lucky
+          # ==========================================================
 
           echo
-          echo "============================================================"
-
-
-      # ============================================================
-      # 11. Install Lucky
-      # ============================================================
-
-      - name: Install Lucky
-        working-directory: ./openwrt
-
-        run: |
-          set -e
-
-          echo
-          echo "============================================================"
-          echo "INSTALL LUCKY"
-          echo "============================================================"
+          echo "===== Lucky ====="
 
           rm -rf package/feeds/lucky/luci-app-lucky
           rm -rf package/lucky
@@ -337,215 +281,62 @@ jobs:
             https://github.com/gdy666/luci-app-lucky.git \
             package/lucky
 
-          echo
-          echo "Lucky repository:"
-          git -C package/lucky log -1 --format='commit: %H'
-          git -C package/lucky log -1 --format='subject: %s'
+
+          # ==========================================================
+          # Argon Theme
+          #
+          # IMPORTANT:
+          # Argon upstream repository is already an OpenWrt package
+          # repository. Its Makefile is at the repository root.
+          #
+          # Official installation method:
+          #   cd openwrt/package
+          #   git clone luci-theme-argon
+          #
+          # Therefore DO NOT clone it into package/argon.
+          # ==========================================================
 
           echo
-          echo "============================================================"
-
-
-      # ============================================================
-      # 12. Install Argon Theme FIRST
-      #
-      # IMPORTANT:
-      # Argon Config depends on luci-theme-argon.
-      #
-      # Therefore the Theme must exist before Argon Config is
-      # introduced into the package tree.
-      # ============================================================
-
-      - name: Install Argon Theme
-        working-directory: ./openwrt
-
-        run: |
-          set -e
-
-          echo
-          echo "============================================================"
-          echo "INSTALL ARGON THEME"
-          echo "============================================================"
+          echo "===== Argon Theme ====="
 
           rm -rf package/feeds/luci/luci-theme-argon
           rm -rf package/argon
+          rm -rf package/luci-theme-argon
 
           git clone \
             --depth 1 \
             https://github.com/jerrykuku/luci-theme-argon.git \
-            package/argon
+            package/luci-theme-argon
+
+
+          # ==========================================================
+          # Argon Config
+          # ==========================================================
 
           echo
-          echo "Argon Theme repository:"
-          git -C package/argon log -1 --format='commit: %H'
-          git -C package/argon log -1 --format='subject: %s'
-
-          echo
-          echo "===== Argon Theme Makefile ====="
-
-          if [ ! -f package/argon/Makefile ]; then
-            echo "ERROR: Argon Theme Makefile not found."
-            exit 1
-          fi
-
-          sed -n '1,160p' package/argon/Makefile
-
-          echo
-          echo "===== Detect package definition ====="
-
-          grep -n \
-            -E \
-            'Package/(luci-theme-argon|.*argon)|PKG_NAME|LUCI_TITLE|LUCI_DEPENDS' \
-            package/argon/Makefile \
-            || true
-
-          echo
-          echo "============================================================"
-
-
-      # ============================================================
-      # 13. Register Argon Theme
-      #
-      # This is the key V3.03 change.
-      #
-      # Install the Theme into the feed/package index BEFORE
-      # installing Argon Config.
-      # ============================================================
-
-      - name: Register Argon Theme package
-        working-directory: ./openwrt
-
-        shell: bash
-
-        run: |
-          set -e
-
-          echo
-          echo "============================================================"
-          echo "REGISTER ARGON THEME PACKAGE"
-          echo "============================================================"
-
-          echo
-          echo "===== Current package directory ====="
-
-          ls -la package/argon
-
-          echo
-          echo "===== Search Argon package definition ====="
-
-          grep -R -n \
-            -E \
-            'PKG_NAME.*argon|Package/luci-theme-argon|LUCI_TITLE.*Argon' \
-            package/argon \
-            2>/dev/null \
-            | head -50 \
-            || true
-
-          echo
-          echo "===== Install Argon Theme ====="
-
-          ./scripts/feeds install -p luci luci-theme-argon \
-            2>&1 | tee argon-theme-install.log || true
-
-          echo
-          echo "===== Search installed Argon Theme ====="
-
-          find package/feeds package \
-            -maxdepth 4 \
-            -type f \
-            -name Makefile \
-            -print \
-            2>/dev/null \
-            | grep -E 'argon|luci-theme' \
-            | head -100 \
-            || true
-
-          echo
-          echo "===== Verify package definition ====="
-
-          if grep -R \
-            -q \
-            'Package/luci-theme-argon' \
-            package \
-            2>/dev/null
-          then
-            echo "OK: luci-theme-argon package definition detected."
-          else
-            echo "WARNING: luci-theme-argon package definition was not found by direct search."
-          fi
-
-          echo
-          echo "============================================================"
-
-
-      # ============================================================
-      # 14. Install Argon Config SECOND
-      # ============================================================
-
-      - name: Install Argon Config
-        working-directory: ./openwrt
-
-        run: |
-          set -e
-
-          echo
-          echo "============================================================"
-          echo "INSTALL ARGON CONFIG"
-          echo "============================================================"
+          echo "===== Argon Config ====="
 
           rm -rf package/feeds/luci/luci-app-argon-config
           rm -rf package/argon-config
+          rm -rf package/luci-app-argon-config
 
           git clone \
             --depth 1 \
             https://github.com/jerrykuku/luci-app-argon-config.git \
-            package/argon-config
+            package/luci-app-argon-config
+
 
           echo
-          echo "Argon Config repository:"
-          git -C package/argon-config log -1 --format='commit: %H'
-          git -C package/argon-config log -1 --format='subject: %s'
-
-          echo
-          echo "===== Argon Config Makefile ====="
-
-          if [ ! -f package/argon-config/Makefile ]; then
-            echo "ERROR: Argon Config Makefile not found."
-            exit 1
-          fi
-
-          sed -n '1,160p' package/argon-config/Makefile
-
-          echo
+          echo "============================================================"
+          echo "THIRD-PARTY PACKAGE INSTALLATION COMPLETED"
           echo "============================================================"
 
 
       # ============================================================
-      # 15. Install RTP2HTTPD feed
+      # 8. Verify package source structure
       # ============================================================
 
-      - name: Install RTP2HTTPD
-        working-directory: ./openwrt
-
-        run: |
-          set -e
-
-          echo
-          echo "============================================================"
-          echo "INSTALL RTP2HTTPD"
-          echo "============================================================"
-
-          ./scripts/feeds install -a
-
-          echo
-          echo "============================================================"
-
-
-      # ============================================================
-      # 16. Package Makefile Audit
-      # ============================================================
-
-      - name: Package Makefile Audit
+      - name: Verify package source structure
         working-directory: ./openwrt
 
         shell: bash
@@ -553,161 +344,175 @@ jobs:
         run: |
           set -e
 
-          echo
           echo "============================================================"
-          echo "PACKAGE MAKEFILE AUDIT"
+          echo "VERIFY PACKAGE SOURCE STRUCTURE"
           echo "============================================================"
 
           FAILED=0
 
-          check_makefile() {
-            NAME="$1"
-            PATH="$2"
 
-            echo
-            echo ">>> Checking $NAME"
-            echo "Path: $PATH"
-
-            if [ ! -f "$PATH" ]; then
-              echo "ERROR: Makefile not found."
-              FAILED=1
-              return
-            fi
-
-            echo "OK: Makefile exists."
-
-            echo "--- Package definitions ---"
-
-            grep -n \
-              -E \
-              'define Package/|PKG_NAME|LUCI_TITLE' \
-              "$PATH" \
-              2>/dev/null \
-              | head -30 \
-              || true
-
-            echo "--- Dependencies ---"
-
-            grep -n \
-              -E \
-              'DEPENDS[+:]?=|LUCI_DEPENDS[+:]?=' \
-              "$PATH" \
-              2>/dev/null \
-              | head -30 \
-              || true
-          }
-
-          check_makefile \
-            "OpenClash" \
-            "package/openclash/luci-app-openclash/Makefile"
-
-          check_makefile \
-            "PassWall2" \
-            "package/passwall2/luci-app-passwall2/Makefile"
-
-          check_makefile \
-            "DAED" \
-            "package/dae/luci-app-daed/Makefile"
-
-          check_makefile \
-            "Lucky" \
-            "package/lucky/luci-app-lucky/Makefile"
-
-          check_makefile \
-            "Argon" \
-            "package/argon/Makefile"
-
-          check_makefile \
-            "Argon Config" \
-            "package/argon-config/Makefile"
+          # ----------------------------------------------------------
+          # OpenClash
+          # ----------------------------------------------------------
 
           echo
-          echo "============================================================"
+          echo ">>> OpenClash"
+
+          if [ -f package/openclash/luci-app-openclash/Makefile ]; then
+            echo "OK: package/openclash/luci-app-openclash/Makefile"
+          else
+            echo "ERROR: OpenClash Makefile missing"
+            FAILED=1
+          fi
+
+
+          # ----------------------------------------------------------
+          # PassWall2
+          # ----------------------------------------------------------
+
+          echo
+          echo ">>> PassWall2"
+
+          if [ -f package/passwall2/luci-app-passwall2/Makefile ]; then
+            echo "OK: package/passwall2/luci-app-passwall2/Makefile"
+          else
+            echo "ERROR: PassWall2 Makefile missing"
+            FAILED=1
+          fi
+
+
+          # ----------------------------------------------------------
+          # DAED
+          # ----------------------------------------------------------
+
+          echo
+          echo ">>> DAED"
+
+          if [ -f package/dae/luci-app-daed/Makefile ]; then
+            echo "OK: package/dae/luci-app-daed/Makefile"
+          else
+            echo "ERROR: DAED LuCI Makefile missing"
+            FAILED=1
+          fi
+
+          if [ -f package/dae/daed/Makefile ]; then
+            echo "OK: package/dae/daed/Makefile"
+          else
+            echo "WARNING: DAED binary Makefile not found at package/dae/daed/Makefile"
+          fi
+
+
+          # ----------------------------------------------------------
+          # Lucky
+          # ----------------------------------------------------------
+
+          echo
+          echo ">>> Lucky"
+
+          if [ -f package/lucky/luci-app-lucky/Makefile ]; then
+            echo "OK: Lucky Makefile"
+          else
+            echo "ERROR: Lucky Makefile missing"
+            FAILED=1
+          fi
+
+
+          # ----------------------------------------------------------
+          # Argon Theme
+          # ----------------------------------------------------------
+
+          echo
+          echo ">>> Argon Theme"
+
+          if [ -f package/luci-theme-argon/Makefile ]; then
+            echo "OK: Argon root Makefile"
+          else
+            echo "ERROR: Argon root Makefile missing"
+            FAILED=1
+          fi
+
+          echo
+          echo "Argon package definition:"
+
+          grep -n \
+            -E \
+            'define Package/|PKG_NAME|LUCI_DEPENDS' \
+            package/luci-theme-argon/Makefile \
+            || true
+
+
+          # ----------------------------------------------------------
+          # Argon Config
+          # ----------------------------------------------------------
+
+          echo
+          echo ">>> Argon Config"
+
+          if [ -f package/luci-app-argon-config/Makefile ]; then
+            echo "OK: Argon Config Makefile"
+          else
+            echo "ERROR: Argon Config Makefile missing"
+            FAILED=1
+          fi
+
+          echo
+          echo "Argon Config dependency:"
+
+          grep -n \
+            -E \
+            'define Package/|PKG_NAME|DEPENDS|LUCI_DEPENDS' \
+            package/luci-app-argon-config/Makefile \
+            || true
+
+
+          # ----------------------------------------------------------
+          # Final
+          # ----------------------------------------------------------
+
+          echo
 
           if [ "$FAILED" -ne 0 ]; then
-            echo "PACKAGE MAKEFILE AUDIT FAILED"
+            echo "============================================================"
+            echo "PACKAGE SOURCE STRUCTURE FAILED"
+            echo "============================================================"
             exit 1
           fi
 
-          echo "PACKAGE MAKEFILE AUDIT PASSED"
-
+          echo "============================================================"
+          echo "PACKAGE SOURCE STRUCTURE PASSED"
           echo "============================================================"
 
 
       # ============================================================
-      # 17. Explicit Argon dependency validation
+      # 9. Refresh package index
       # ============================================================
 
-      - name: Validate Argon dependency
+      - name: Refresh feed packages
         working-directory: ./openwrt
-
-        shell: bash
 
         run: |
           set -e
 
-          echo
           echo "============================================================"
-          echo "ARGON DEPENDENCY VALIDATION"
+          echo "REFRESH PACKAGE INDEX"
           echo "============================================================"
 
-          echo
-          echo "===== Argon Theme package name ====="
+          ./scripts/feeds install -a 2>&1 | tee feed-install.log
 
-          grep -R \
-            -n \
-            -E \
-            'PKG_NAME|Package/luci-theme-argon|LUCI_TITLE' \
-            package/argon \
-            2>/dev/null \
-            | head -50 \
+          echo
+          echo "===== Feed installation warnings ====="
+
+          grep -n -E \
+            'WARNING:|warning:' \
+            feed-install.log \
             || true
-
-          echo
-          echo "===== Argon Config dependency ====="
-
-          grep -n \
-            -E \
-            'LUCI_DEPENDS|luci-theme-argon' \
-            package/argon-config/Makefile \
-            || true
-
-          echo
-          echo "===== Search complete source tree ====="
-
-          grep -R \
-            -n \
-            --include='Makefile' \
-            'Package/luci-theme-argon' \
-            package \
-            feeds \
-            2>/dev/null \
-            | head -50 \
-            || true
-
-          echo
-          echo "===== Check dependency target ====="
-
-          if grep -R \
-            -q \
-            --include='Makefile' \
-            'Package/luci-theme-argon' \
-            package \
-            feeds \
-            2>/dev/null
-          then
-            echo "OK: luci-theme-argon package definition exists."
-          else
-            echo "ERROR: luci-theme-argon package definition does not exist."
-            exit 1
-          fi
 
           echo
           echo "============================================================"
 
 
       # ============================================================
-      # 18. Create V3 configuration
+      # 10. Create complete V3 configuration
       # ============================================================
 
       - name: Generate V3 configuration
@@ -718,7 +523,6 @@ jobs:
         run: |
           set -e
 
-          echo
           echo "============================================================"
           echo "GENERATE IMMORTALWRT V3 CONFIGURATION"
           echo "============================================================"
@@ -868,7 +672,6 @@ jobs:
 
           CONFIG_PACKAGE_wireguard-tools=y
           CONFIG_PACKAGE_kmod-wireguard=y
-          CONFIG_PACKAGE_luci-app-wireguard=y
           CONFIG_PACKAGE_luci-proto-wireguard=y
           EOF
 
@@ -944,7 +747,7 @@ jobs:
 
 
       # ============================================================
-      # 19. Run defconfig
+      # 11. Run defconfig
       # ============================================================
 
       - name: Run make defconfig
@@ -955,7 +758,6 @@ jobs:
         run: |
           set -o pipefail
 
-          echo
           echo "============================================================"
           echo "RUN MAKE DEFCONFIG"
           echo "============================================================"
@@ -969,7 +771,7 @@ jobs:
 
 
       # ============================================================
-      # 20. Audit defconfig changes
+      # 12. Audit defconfig changes
       # ============================================================
 
       - name: Audit defconfig changes
@@ -980,7 +782,6 @@ jobs:
         run: |
           set -e
 
-          echo
           echo "============================================================"
           echo "DEFCONFIG AUDIT"
           echo "============================================================"
@@ -995,7 +796,7 @@ jobs:
 
           echo
           echo "============================================================"
-          echo "IMPORTANT CONFIGURATION"
+          echo "IMPORTANT SELECTED CONFIGURATION"
           echo "============================================================"
 
           grep -E \
@@ -1015,7 +816,7 @@ jobs:
 
 
       # ============================================================
-      # 21. Verify package selections
+      # 13. Verify package selections
       # ============================================================
 
       - name: Verify package selections
@@ -1026,12 +827,16 @@ jobs:
         run: |
           set -e
 
-          echo
           echo "============================================================"
           echo "VERIFY PACKAGE SELECTIONS"
           echo "============================================================"
 
           FAILED=0
+
+
+          # ==========================================================
+          # Check enabled package
+          # ==========================================================
 
           check_y() {
             SYMBOL="$1"
@@ -1047,7 +852,20 @@ jobs:
             fi
           }
 
-          check_n() {
+
+          # ==========================================================
+          # Check disabled package
+          #
+          # IMPORTANT:
+          # <NOT SET> is valid.
+          #
+          # make defconfig removes undefined symbols or symbols
+          # which do not exist in the current configuration tree.
+          #
+          # Only =y means the package is actually enabled.
+          # ==========================================================
+
+          check_disabled() {
             SYMBOL="$1"
 
             VALUE=$(grep "^${SYMBOL}=" .config 2>/dev/null \
@@ -1055,12 +873,18 @@ jobs:
 
             echo "$SYMBOL = ${VALUE:-<NOT SET>}"
 
-            if [ "$VALUE" != "n" ]; then
-              echo "ERROR: $SYMBOL is not disabled."
+            if [ "$VALUE" = "y" ]; then
+              echo "ERROR: $SYMBOL is ENABLED but should be disabled."
               FAILED=1
+            else
+              echo "OK: $SYMBOL is not enabled."
             fi
           }
 
+
+          # ==========================================================
+          # Required packages
+          # ==========================================================
 
           echo
           echo "===== Required packages ====="
@@ -1075,12 +899,27 @@ jobs:
           check_y CONFIG_PACKAGE_luci-theme-argon
           check_y CONFIG_PACKAGE_luci-app-argon-config
 
+
+          # ==========================================================
+          # WireGuard
+          #
+          # Do NOT check luci-app-wireguard.
+          #
+          # Modern LuCI uses luci-proto-wireguard together with
+          # wireguard-tools and kmod-wireguard.
+          # ==========================================================
+
           echo
-          echo "===== VPN ====="
+          echo "===== WireGuard ====="
 
           check_y CONFIG_PACKAGE_kmod-wireguard
           check_y CONFIG_PACKAGE_wireguard-tools
-          check_y CONFIG_PACKAGE_luci-app-wireguard
+          check_y CONFIG_PACKAGE_luci-proto-wireguard
+
+
+          # ==========================================================
+          # SQM
+          # ==========================================================
 
           echo
           echo "===== SQM ====="
@@ -1091,23 +930,35 @@ jobs:
           check_y CONFIG_PACKAGE_kmod-ifb
           check_y CONFIG_PACKAGE_tc-full
 
+
+          # ==========================================================
+          # Disabled proxy frontends
+          # ==========================================================
+
           echo
           echo "===== Disabled proxy frontends ====="
 
-          check_n CONFIG_PACKAGE_luci-app-ssr-plus
-          check_n CONFIG_PACKAGE_luci-app-passwall
-          check_n CONFIG_PACKAGE_luci-app-mihomo
-          check_n CONFIG_PACKAGE_luci-app-homeproxy
-          check_n CONFIG_PACKAGE_netbird
+          check_disabled CONFIG_PACKAGE_luci-app-ssr-plus
+          check_disabled CONFIG_PACKAGE_luci-app-passwall
+          check_disabled CONFIG_PACKAGE_luci-app-mihomo
+          check_disabled CONFIG_PACKAGE_luci-app-homeproxy
+          check_disabled CONFIG_PACKAGE_netbird
+
+
+          # ==========================================================
+          # Final result
+          # ==========================================================
 
           echo
           echo "===== Final result ====="
 
           if [ "$FAILED" -ne 0 ]; then
+
             echo
             echo "============================================================"
             echo "PACKAGE SELECTION VERIFICATION FAILED"
             echo "============================================================"
+
             exit 1
           fi
 
@@ -1118,10 +969,10 @@ jobs:
 
 
       # ============================================================
-      # 22. DAED / BTF configuration audit
+      # 14. Argon dependency audit
       # ============================================================
 
-      - name: Audit DAED BTF configuration
+      - name: Audit Argon dependency
         working-directory: ./openwrt
 
         shell: bash
@@ -1129,55 +980,68 @@ jobs:
         run: |
           set -e
 
-          echo
           echo "============================================================"
-          echo "DAED / BTF CONFIGURATION AUDIT"
+          echo "ARGON DEPENDENCY AUDIT"
           echo "============================================================"
 
-          echo
-          echo "===== Final DAED configuration ====="
 
-          grep -E \
-            '^CONFIG_(DEVEL|KERNEL_DEBUG_INFO|KERNEL_DEBUG_INFO_REDUCED|KERNEL_DEBUG_INFO_BTF|KERNEL_CGROUPS|KERNEL_CGROUP_BPF|KERNEL_BPF_EVENTS|BPF_TOOLCHAIN_HOST|KERNEL_XDP_SOCKETS|PACKAGE_kmod-xdp-sockets-diag|PACKAGE_daed|PACKAGE_luci-app-daed)=' \
-            .config \
+          echo
+          echo "===== Argon Theme Makefile ====="
+
+          if [ -f package/luci-theme-argon/Makefile ]; then
+            grep -n \
+              -E \
+              '^(PKG_NAME|PKG_VERSION|PKG_RELEASE)|define Package/' \
+              package/luci-theme-argon/Makefile \
+              || true
+          fi
+
+
+          echo
+          echo "===== Argon Config Makefile ====="
+
+          if [ -f package/luci-app-argon-config/Makefile ]; then
+            grep -n \
+              -E \
+              '^(PKG_NAME|PKG_VERSION|PKG_RELEASE)|DEPENDS|LUCI_DEPENDS|define Package/' \
+              package/luci-app-argon-config/Makefile \
+              || true
+          fi
+
+
+          echo
+          echo "===== Package definitions found in source tree ====="
+
+          grep -R -n \
+            --include='Makefile' \
+            'Package/luci-theme-argon' \
+            package \
+            feeds \
+            2>/dev/null \
+            | head -30 \
             || true
 
+
           echo
-          echo "===== Search kernel configuration symbols ====="
+          echo "===== Argon related package directories ====="
 
-          for symbol in \
-            CONFIG_DEBUG_INFO \
-            CONFIG_DEBUG_INFO_BTF \
-            CONFIG_DEBUG_INFO_BTF_MODULES \
-            CONFIG_BPF \
-            CONFIG_BPF_SYSCALL \
-            CONFIG_CGROUPS \
-            CONFIG_CGROUP_BPF \
-            CONFIG_BPF_EVENTS \
-            CONFIG_XDP_SOCKETS
+          find package feeds \
+            -maxdepth 4 \
+            -type f \
+            -name 'Makefile' \
+            2>/dev/null \
+            | grep -E \
+              'argon|Argon' \
+            | sort \
+            || true
 
-          do
-            echo
-            echo ">>> $symbol"
-
-            grep -R \
-              -n \
-              --include='Config.in*' \
-              --include='*.in' \
-              "$symbol" \
-              target \
-              package \
-              2>/dev/null \
-              | head -20 \
-              || true
-          done
 
           echo
           echo "============================================================"
 
 
       # ============================================================
-      # 23. Check defconfig warnings
+      # 15. Check defconfig warnings
       # ============================================================
 
       - name: Check defconfig warnings
@@ -1188,7 +1052,6 @@ jobs:
         run: |
           set -e
 
-          echo
           echo "============================================================"
           echo "CHECK DEFCONFIG WARNINGS"
           echo "============================================================"
@@ -1198,39 +1061,47 @@ jobs:
             exit 1
           fi
 
+
           echo
-          echo "===== Warning / dependency messages ====="
+          echo "===== All warnings ====="
 
           grep -n -E \
-            'WARNING:|warning:|depends on|dependency|not found|unknown symbol|invalid' \
+            'WARNING:|warning:' \
             defconfig.log \
             || true
+
 
           echo
           echo "===== OpenClash override check ====="
 
-          if grep -q \
-            'Not overriding core package .luci-app-openclash.' \
-            defconfig.log
-          then
+          if grep -qi \
+            'Not overriding core package.*luci-app-openclash' \
+            defconfig.log; then
+
             echo "ERROR: OpenClash override warning detected."
+
             exit 1
+          else
+
+            echo "OK: No OpenClash override warning."
           fi
 
-          echo "OK: No OpenClash override warning."
 
           echo
           echo "===== Argon dependency warning check ====="
 
-          if grep -q \
+          if grep -qi \
             "dependency on 'luci-theme-argon', which does not exist" \
-            defconfig.log
-          then
+            defconfig.log; then
+
             echo "ERROR: Argon dependency warning detected."
+
             exit 1
+          else
+
+            echo "OK: No Argon dependency warning."
           fi
 
-          echo "OK: No Argon dependency warning."
 
           echo
           echo "===== Complete defconfig log ====="
@@ -1239,10 +1110,12 @@ jobs:
 
           echo
           echo "============================================================"
+          echo "DEFCONFIG WARNING CHECK COMPLETED"
+          echo "============================================================"
 
 
       # ============================================================
-      # 24. Package dependency check
+      # 16. Package dependency check
       # ============================================================
 
       - name: Package dependency check
@@ -1253,24 +1126,22 @@ jobs:
         run: |
           set -e
 
-          echo
           echo "============================================================"
           echo "PACKAGE DEPENDENCY CHECK"
           echo "============================================================"
 
-          echo
-          echo "===== Third-party package dependencies ====="
 
           for dir in \
             package/openclash \
             package/passwall2 \
             package/dae \
             package/lucky \
-            package/argon \
-            package/argon-config \
+            package/luci-theme-argon \
+            package/luci-app-argon-config \
             feeds/rtp2httpd
 
           do
+
             if [ -d "$dir" ]; then
 
               echo
@@ -1286,14 +1157,16 @@ jobs:
                 || true
 
             fi
+
           done
+
 
           echo
           echo "============================================================"
 
 
       # ============================================================
-      # 25. Search known dependency problems
+      # 17. Search known dependency problems
       # ============================================================
 
       - name: Search known dependency problems
@@ -1304,12 +1177,13 @@ jobs:
         run: |
           set -e
 
-          echo
           echo "============================================================"
           echo "KNOWN DEPENDENCY SEARCH"
           echo "============================================================"
 
+
           check_dependency() {
+
             NAME="$1"
 
             echo
@@ -1330,6 +1204,7 @@ jobs:
               || true
           }
 
+
           check_dependency "vmlinux-btf"
           check_dependency "BPF_TOOLCHAIN_HOST"
           check_dependency "DEBUG_INFO_BTF"
@@ -1340,13 +1215,15 @@ jobs:
           check_dependency "chinadns-ng"
           check_dependency "proto-bonding"
           check_dependency "luci-theme-argon"
+          check_dependency "luci-app-argon-config"
+
 
           echo
           echo "============================================================"
 
 
       # ============================================================
-      # 26. Save diagnostic artifacts
+      # 18. Upload diagnostics
       # ============================================================
 
       - name: Upload config diagnostics
@@ -1354,18 +1231,20 @@ jobs:
         uses: actions/upload-artifact@v4
 
         with:
-          name: immortalwrt-v3-test03-config-${{ github.run_number }}
+          name: immortalwrt-v3-test04-config-${{ github.run_number }}
+
           path: |
             ./openwrt/.config
             ./openwrt/.config.requested
             ./openwrt/defconfig.log
-            ./openwrt/argon-theme-install.log
+            ./openwrt/feed-install.log
+
           if-no-files-found: warn
           retention-days: 14
 
 
       # ============================================================
-      # 27. Final summary
+      # 19. Final summary
       # ============================================================
 
       - name: Final summary
@@ -1376,14 +1255,16 @@ jobs:
 
           echo
           echo "################################################################"
-          echo "# IMMORTALWRT V3 TEST 03 FINAL SUMMARY"
+          echo "# IMMORTALWRT V3 TEST 04 FINAL SUMMARY"
           echo "################################################################"
+
 
           echo
           echo "===== ImmortalWrt ====="
 
           git log -1 --format='commit: %H'
           git log -1 --format='subject: %s'
+
 
           echo
           echo "===== Target ====="
@@ -1393,6 +1274,7 @@ jobs:
             .config \
             || true
 
+
           echo
           echo "===== Image configuration ====="
 
@@ -1400,6 +1282,7 @@ jobs:
             '^CONFIG_(TARGET_KERNEL_PARTSIZE|TARGET_ROOTFS_PARTSIZE|TARGET_IMAGES_GZIP|EFI_IMAGES)=' \
             .config \
             || true
+
 
           echo
           echo "===== Proxy ====="
@@ -1409,13 +1292,15 @@ jobs:
             .config \
             || true
 
+
           echo
-          echo "===== VPN ====="
+          echo "===== WireGuard ====="
 
           grep -E \
-            '^CONFIG_PACKAGE_(kmod-wireguard|wireguard-tools|luci-app-wireguard|luci-app-openvpn|luci-app-openvpn-server|openvpn-easy-rsa)=' \
+            '^CONFIG_PACKAGE_(kmod-wireguard|wireguard-tools|luci-proto-wireguard|luci-app-wireguard)=' \
             .config \
             || true
+
 
           echo
           echo "===== SQM ====="
@@ -1425,6 +1310,7 @@ jobs:
             .config \
             || true
 
+
           echo
           echo "===== DAED / BTF ====="
 
@@ -1432,6 +1318,7 @@ jobs:
             '^CONFIG_(KERNEL_DEBUG_INFO|KERNEL_DEBUG_INFO_REDUCED|KERNEL_DEBUG_INFO_BTF|KERNEL_CGROUPS|KERNEL_CGROUP_BPF|KERNEL_BPF_EVENTS|BPF_TOOLCHAIN_HOST|KERNEL_XDP_SOCKETS)=' \
             .config \
             || true
+
 
           echo
           echo "===== Argon ====="
@@ -1441,6 +1328,7 @@ jobs:
             .config \
             || true
 
+
           echo
           echo "===== Other ====="
 
@@ -1449,7 +1337,8 @@ jobs:
             .config \
             || true
 
+
           echo
           echo "################################################################"
-          echo "# TEST 03 COMPLETED"
+          echo "# TEST 04 COMPLETED"
           echo "################################################################"
