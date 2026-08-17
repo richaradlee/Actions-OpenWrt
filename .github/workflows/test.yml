@@ -592,9 +592,12 @@ jobs:
           echo
           echo "============================================================"
 
-
       # ============================================================
       # 16. Check selected package Makefiles
+      #
+      # IMPORTANT:
+      # Third-party repositories may use different directory
+      # layouts. Do NOT hard-code the Argon package path.
       # ============================================================
 
       - name: Check package Makefiles
@@ -635,59 +638,163 @@ jobs:
 
             echo "--- Dependencies ---"
             grep -n \
-              -E 'DEPENDS[+:]?=' \
+              -E 'DEPENDS[+:]?=|LUCI_DEPENDS[+:]?=' \
               "$FILE" \
               || true
           }
+
+
+          find_makefile() {
+            ROOT="$1"
+            PACKAGE="$2"
+
+            find "$ROOT" \
+              -type f \
+              -name Makefile \
+              -print0 \
+              | xargs -0 grep -l \
+                -E "^[[:space:]]*define[[:space:]]+Package/(\$\{PKG_NAME\}|\\\$\(PKG_NAME\)|${PACKAGE})([[:space:]]|/|$)" \
+                2>/dev/null \
+              | head -1
+          }
+
+
+          # ----------------------------------------------------------
+          # OpenClash
+          # ----------------------------------------------------------
 
           check_makefile \
             "OpenClash" \
             "package/openclash/luci-app-openclash/Makefile"
 
+
+          # ----------------------------------------------------------
+          # PassWall2
+          # ----------------------------------------------------------
+
           check_makefile \
             "PassWall2" \
             "package/passwall2/luci-app-passwall2/Makefile"
 
+
+          # ----------------------------------------------------------
+          # DAED
+          # ----------------------------------------------------------
+
           if [ -f package/dae/luci-app-daed/Makefile ]; then
+
             check_makefile \
               "DAED" \
               "package/dae/luci-app-daed/Makefile"
+
           elif [ -f package/dae/Makefile ]; then
+
             check_makefile \
               "DAED" \
               "package/dae/Makefile"
+
           else
+
             echo
-            echo "WARNING: DAED Makefile location was not found."
-            echo "The repository structure must be inspected."
+            echo "ERROR: DAED Makefile not found."
             FAILED=1
+
           fi
+
+
+          # ----------------------------------------------------------
+          # Lucky
+          # ----------------------------------------------------------
 
           check_makefile \
             "Lucky" \
             "package/lucky/luci-app-lucky/Makefile"
 
-          check_makefile \
-            "Argon" \
-            "package/argon/luci-theme-argon/Makefile"
 
-          check_makefile \
-            "Argon Config" \
-            "package/argon-config/Makefile"
+          # ----------------------------------------------------------
+          # Argon
+          #
+          # Search automatically because upstream repository layout
+          # may change.
+          # ----------------------------------------------------------
+
+          echo
+          echo ">>> Checking Argon"
+
+          ARGON_MAKEFILE=$(find package/argon \
+            -type f \
+            -name Makefile \
+            | head -1)
+
+          if [ -z "$ARGON_MAKEFILE" ]; then
+
+            echo "ERROR: Argon Makefile not found."
+            echo
+            echo "Argon repository structure:"
+            find package/argon \
+              -maxdepth 4 \
+              -type f \
+              | sort \
+              | head -200
+
+            FAILED=1
+
+          else
+
+            echo "Argon Makefile:"
+            echo "$ARGON_MAKEFILE"
+
+            check_makefile \
+              "Argon" \
+              "$ARGON_MAKEFILE"
+
+          fi
+
+
+          # ----------------------------------------------------------
+          # Argon Config
+          # ----------------------------------------------------------
+
+          ARGON_CONFIG_MAKEFILE=$(find package/argon-config \
+            -type f \
+            -name Makefile \
+            | head -1)
+
+          if [ -z "$ARGON_CONFIG_MAKEFILE" ]; then
+
+            echo
+            echo "ERROR: Argon Config Makefile not found."
+            FAILED=1
+
+          else
+
+            check_makefile \
+              "Argon Config" \
+              "$ARGON_CONFIG_MAKEFILE"
+
+          fi
+
+
+          # ----------------------------------------------------------
+          # Final result
+          # ----------------------------------------------------------
 
           if [ "$FAILED" -ne 0 ]; then
+
             echo
             echo "============================================================"
             echo "PACKAGE MAKEFILE CHECK FAILED"
             echo "============================================================"
+
             exit 1
+
           fi
+
 
           echo
           echo "============================================================"
           echo "PACKAGE MAKEFILE CHECK PASSED"
           echo "============================================================"
-
 
       # ============================================================
       # 17. Dependency inspection
