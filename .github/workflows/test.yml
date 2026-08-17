@@ -1,6 +1,7 @@
 name: ImmortalWrt x86
 on:
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -79,7 +80,7 @@ jobs:
         run: |
           set -e
 
-          rm -rf package/feeds/luci/luci-app-openclash package/openclash
+          rm -rf package/feeds/luci/luci-app-openclash package/openclash package/feeds/luci/openclash
           git clone --depth 1 https://github.com/vernesong/OpenClash.git package/openclash
 
           rm -rf package/feeds/luci/luci-app-passwall2 package/passwall2
@@ -92,8 +93,8 @@ jobs:
           git clone --depth 1 https://github.com/gdy666/luci-app-lucky.git package/lucky
 
           rm -rf package/feeds/luci/luci-theme-argon package/feeds/luci/luci-app-argon-config package/argon package/argon-config
-          git clone --depth 1 https://github.com/jerrykuku/luci-theme-argon.git package/argon
-          git clone --depth 1 https://github.com/jerrykuku/luci-app-argon-config.git package/argon-config
+          git clone --depth 1 --branch master https://github.com/jerrykuku/luci-theme-argon.git package/argon
+          git clone --depth 1 --branch master https://github.com/jerrykuku/luci-app-argon-config.git package/argon-config
 
       # 8. Verify third-party sources
       - name: Verify third-party package sources
@@ -120,19 +121,31 @@ jobs:
           check_makefile "Argon" package/argon/Makefile
           check_makefile "Argon Config" package/argon-config/Makefile
 
+          ARGON_REMOTE="$(git -C package/argon remote get-url origin)"
+          ARGON_BRANCH="$(git -C package/argon branch --show-current)"
+          ARGON_COMMIT="$(git -C package/argon rev-parse HEAD)"
+          ARGON_VERSION="$(git -C package/argon describe --tags --always 2>/dev/null || echo unknown)"
+
           echo "============================================================"
           echo "ARGON SOURCE"
           echo "============================================================"
-          git -C package/argon log -1 --format='commit: %H'
-          git -C package/argon log -1 --format='subject: %s'
-          git -C package/argon describe --tags --always || true
+          echo "Remote: $ARGON_REMOTE"
+          echo "Branch: $ARGON_BRANCH"
+          echo "Commit: $ARGON_COMMIT"
+          echo "Version: $ARGON_VERSION"
+
+          test "$ARGON_REMOTE" = "https://github.com/jerrykuku/luci-theme-argon.git"
+          test "$ARGON_BRANCH" = "master"
+
+          echo "ARGON_COMMIT=$ARGON_COMMIT" >> "$GITHUB_ENV"
+          echo "ARGON_VERSION=$ARGON_VERSION" >> "$GITHUB_ENV"
 
           echo "============================================================"
           echo "THIRD-PARTY SOURCE CHECK PASSED"
           echo "============================================================"
 
-      # 9. Generate V3 configuration
-      - name: Generate V3 configuration
+      # 9. Generate V4 configuration
+      - name: Generate V4 configuration
         working-directory: ./openwrt
         run: |
           set -e
@@ -147,6 +160,7 @@ jobs:
           CONFIG_TARGET_ROOTFS_PARTSIZE=640
           CONFIG_TARGET_IMAGES_GZIP=y
           CONFIG_EFI_IMAGES=y
+          CONFIG_CCACHE=y
 
           CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y
           CONFIG_PACKAGE_ipv6helper=y
@@ -246,28 +260,39 @@ jobs:
 
           cp .config .config.requested
 
-      # 10. Run make defconfig
+      # 10. Setup ccache
+      - name: Setup ccache
+        working-directory: ./openwrt
+        run: |
+          set -e
+          mkdir -p .ccache
+          ccache --set-config=max_size=5G
+          ccache --set-config=compression=true
+          ccache -z
+          ccache -s
+
+      # 11. Restore build caches
+      - name: Restore build caches
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ./openwrt/dl
+            ./openwrt/staging_dir/host
+            ./openwrt/staging_dir/toolchain-*
+            ./openwrt/.ccache
+          key: ${{ runner.os }}-immortalwrt-v4-x86_64-${{ hashFiles('openwrt/.config') }}
+          restore-keys: |
+            ${{ runner.os }}-immortalwrt-v4-x86_64-
+            ${{ runner.os }}-immortalwrt-
+
+      # 12. Run make defconfig
       - name: Run make defconfig
         working-directory: ./openwrt
         run: |
           set -o pipefail
           make defconfig 2>&1 | tee defconfig.log
 
-      # 11. Restore build caches
-      - name: Restore build caches
-        uses: actions/cache@v4
-        with:
-          path: |
-            ./openwrt/dl
-            ./openwrt/build_dir
-            ./openwrt/staging_dir
-            ~/.ccache
-          key: ${{ runner.os }}-immortalwrt-v3-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config') }}
-          restore-keys: |
-            ${{ runner.os }}-immortalwrt-v3-${{ env.SOURCE_COMMIT }}-
-            ${{ runner.os }}-immortalwrt-v3-
-
-      # 12. Verify configuration and package definitions
+      # 13. Verify configuration
       - name: Verify configuration
         working-directory: ./openwrt
         run: |
@@ -304,7 +329,6 @@ jobs:
             luci-app-daed \
             luci-app-lucky \
             luci-app-rtp2httpd \
-            luci-theme-argon \
             luci-app-argon-config \
             luci-app-upnp \
             miniupnpd-nftables \
@@ -328,28 +352,57 @@ jobs:
             openvpn-easy-rsa \
             kmod-wireguard \
             wireguard-tools \
-            luci-proto-wireguard
+            luci-proto-wireguard \
+            ccachedummy
           do
-            check_y CONFIG_PACKAGE_$P
+            if [ "$P" = "ccachedummy" ]; then
+              continue
+            fi
+            check_y "CONFIG_PACKAGE_$P"
           done
+
+          echo
+          echo "===== Argon ====="
+
+          test -f package/argon/Makefile || {
+            echo "ERROR: Argon theme Makefile not found."
+            FAILED=1
+          }
+
+          test -f package/argon-config/Makefile || {
+            echo "ERROR: Argon config Makefile not found."
+            FAILED=1
+          }
+
+          grep -q "^CONFIG_PACKAGE_luci-app-argon-config=y$" .config || {
+            echo "ERROR: Argon config package is not enabled."
+            FAILED=1
+          }
+
+          grep -R -n "luci-theme-argon" package/argon-config/Makefile >/dev/null || {
+            echo "ERROR: Argon config dependency not found."
+            FAILED=1
+          }
+
+          echo "Argon commit: ${ARGON_COMMIT}"
+          echo "Argon version: ${ARGON_VERSION}"
 
           echo
           echo "===== Disabled ====="
 
-          for P in \
-            luci-app-openvpn-server
-          do
-            check_not_y CONFIG_PACKAGE_$P
-          done
+          check_not_y CONFIG_PACKAGE_luci-app-openvpn-server
+
+          echo
+          echo "===== Warning checks ====="
 
           if grep -q "Not overriding core package 'luci-app-openclash'" defconfig.log; then
             echo "ERROR: OpenClash override warning."
-            exit 1
+            FAILED=1
           fi
 
           if grep -q "package/argon-config/Makefile.*depends on 'luci-theme-argon', which does not exist" defconfig.log; then
             echo "ERROR: Argon dependency warning."
-            exit 1
+            FAILED=1
           fi
 
           if [ "$FAILED" -ne 0 ]; then
@@ -365,7 +418,7 @@ jobs:
           echo "FINAL CONFIGURATION VERIFICATION PASSED"
           echo "============================================================"
 
-      # 13. Audit important components
+      # 14. Audit important components
       - name: Audit important components
         working-directory: ./openwrt
         run: |
@@ -377,9 +430,8 @@ jobs:
 
           echo
           echo "===== Argon ====="
-          git -C package/argon log -1 --format='commit: %H'
-          git -C package/argon log -1 --format='subject: %s'
-          git -C package/argon describe --tags --always || true
+          echo "Commit: ${ARGON_COMMIT}"
+          echo "Version: ${ARGON_VERSION}"
 
           echo
           echo "===== UPnP / PCP / NAT-PMP ====="
@@ -403,46 +455,105 @@ jobs:
           grep -E '^CONFIG_(DEVEL|KERNEL_DEBUG_INFO|KERNEL_DEBUG_INFO_BTF|KERNEL_CGROUPS|KERNEL_CGROUP_BPF|KERNEL_BPF_EVENTS|BPF_TOOLCHAIN_HOST|KERNEL_XDP_SOCKETS)=' .config || true
 
           echo
+          echo "===== Cache ====="
+          echo "CCACHE_DIR=$PWD/.ccache"
+          ccache -s || true
+
+          echo
           echo "===== Dependency warnings ====="
           grep -n -E 'WARNING:|depends on|dependency|not found|unknown symbol|invalid' defconfig.log || true
 
-      # 14. Build firmware
+      # 15. Build firmware
       - name: Build ImmortalWrt
         working-directory: ./openwrt
         env:
           TZ: Asia/Shanghai
+          CCACHE_DIR: ${{ github.workspace }}/openwrt/.ccache
         run: |
-          set -e
+          set -o pipefail
           export FORCE_UNSAFE_CONFIGURE=1
-          export CCACHE_DIR="$HOME/.ccache"
-          export CCACHE_MAXSIZE=5G
-          ccache -M 5G || true
-          ccache -s || true
-          make -j"$(nproc)" download
-          make -j"$(nproc)" world V=s
+
+          mkdir -p "$CCACHE_DIR"
+          ccache --set-config=max_size=5G
+          ccache -z
+
+          echo "============================================================"
+          echo "CCACHE BEFORE BUILD"
+          echo "============================================================"
           ccache -s || true
 
-      # 15. Collect EFI image and checksums
+          echo "============================================================"
+          echo "BUILD IMMORTALWRT"
+          echo "============================================================"
+
+          make -j"$(nproc)" download
+          make -j"$(nproc)" world V=s 2>&1 | tee build.log
+
+          echo
+          echo "============================================================"
+          echo "CCACHE AFTER BUILD"
+          echo "============================================================"
+          ccache -s || true
+
+      # 16. Save build caches
+      - name: Save build caches
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ./openwrt/dl
+            ./openwrt/staging_dir/host
+            ./openwrt/staging_dir/toolchain-*
+            ./openwrt/.ccache
+          key: ${{ runner.os }}-immortalwrt-v4-x86_64-${{ hashFiles('openwrt/.config') }}
+
+      # 17. Collect EFI image and checksums
       - name: Collect release files
         working-directory: ./openwrt
         run: |
           set -e
+
           mkdir -p release
           DATE="$(TZ=Asia/Shanghai date +%Y%m%d-%H%M)"
-          SRC="$(find bin/targets/x86/64 -maxdepth 1 -type f -name '*combined-efi.img.gz' | head -1)"
-          [ -n "$SRC" ] || {
+
+          SRC="$(find bin/targets/x86/64 \
+            -maxdepth 1 \
+            -type f \
+            -name '*combined-efi.img.gz' \
+            | head -1)"
+
+          if [ -z "$SRC" ]; then
             echo "ERROR: EFI image not found."
             find bin/targets/x86/64 -maxdepth 1 -type f -print
             exit 1
-          }
+          fi
+
           FILE="ImmortalWrt-x86-64-Generic-${DATE}.img.gz"
+
           cp "$SRC" "release/$FILE"
           sha256sum "release/$FILE" > release/SHA256SUMS.txt
-          echo "RELEASE_TAG=immortalwrt-v3-$DATE" >> "$GITHUB_ENV"
+
+          cat > release/buildinfo.txt <<EOF
+          ImmortalWrt branch: openwrt-25.12
+          ImmortalWrt commit: ${SOURCE_COMMIT}
+          Argon version: ${ARGON_VERSION}
+          Argon commit: ${ARGON_COMMIT}
+          Target: x86_64 Generic
+          Firmware: EFI
+          Kernel: 6.12.x
+          Build time: ${DATE} Asia/Shanghai
+          Firmware file: ${FILE}
+          EOF
+
+          echo "RELEASE_TAG=ImmortalWrt-25.12-x86_64-${DATE}" >> "$GITHUB_ENV"
           echo "RELEASE_FILE=$FILE" >> "$GITHUB_ENV"
+
+          echo "============================================================"
+          echo "RELEASE FILES"
+          echo "============================================================"
           ls -lh release/
 
-      # 16. Upload firmware artifact
+      # 18. Upload firmware and diagnostics
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
@@ -450,10 +561,10 @@ jobs:
           path: |
             ./openwrt/release/*.img.gz
             ./openwrt/release/SHA256SUMS.txt
+            ./openwrt/release/buildinfo.txt
           if-no-files-found: error
           retention-days: 14
 
-      # 17. Upload diagnostics
       - name: Upload diagnostics
         if: always()
         uses: actions/upload-artifact@v4
@@ -463,24 +574,28 @@ jobs:
             ./openwrt/.config
             ./openwrt/.config.requested
             ./openwrt/defconfig.log
+            ./openwrt/build.log
+            ./openwrt/release/buildinfo.txt
           if-no-files-found: warn
           retention-days: 14
 
-      # 18. Create GitHub Release
+      # 19. Create GitHub Release
       - name: Create GitHub Release
+        if: success()
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: ImmortalWrt ${{ env.RELEASE_TAG }}
+          name: ${{ env.RELEASE_TAG }}
           body: |
-            ## ImmortalWrt - 25.12 x86_64
+            ## ImmortalWrt 25.12 x86_64
 
-            **固件内核：** 6.12.x
+            **固件：** `${{ env.RELEASE_FILE }}`
             **目标平台：** x86_64 Generic
             **固件格式：** EFI
-            **固件文件：** `${{ env.RELEASE_FILE }}`
+            **编译时间：** 北京时间
 
             ### 主要组件
+
             - OpenClash
             - PassWall2
             - DAED
@@ -493,27 +608,32 @@ jobs:
             - UPnP IGD
             - NAT-PMP / PCP
             - Vlmcsd KMS
+            - sing-box
+            - ChinaDNS-NG
+            - HAProxy
+            - socat
 
             ### 源码
-            - ImmortalWrt openwrt-25.12
-            - Argon official repository latest
-            - OpenClash official repository
-            - PassWall2 official repository
-            - DAED official repository
-            - Lucky official repository
+
+            **ImmortalWrt：** `openwrt-25.12`
+            **ImmortalWrt commit：** `${{ env.SOURCE_COMMIT }}`
+            **Argon：** `master`
+            **Argon commit：** `${{ env.ARGON_COMMIT }}`
 
             > 本 Release 为 GitHub Actions 自动编译发布。
           files: |
             ./openwrt/release/${{ env.RELEASE_FILE }}
             ./openwrt/release/SHA256SUMS.txt
+            ./openwrt/release/buildinfo.txt
           draft: false
           prerelease: false
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 19. Delete old workflow runs
+      # 20. Delete old workflow runs and final summary
       - name: Delete old workflow runs
+        if: always()
         uses: Mattraks/delete-workflow-runs@v2
         continue-on-error: true
         with:
@@ -522,19 +642,25 @@ jobs:
           retain_days: 20
           keep_minimum_runs: 3
 
-      # 20. Final summary
       - name: Final summary
         if: always()
         working-directory: ./openwrt
         run: |
           echo "################################################################"
-          echo "# IMMORTALWRT COMPLETED"
+          echo "# IMMORTALWRT V4 FINAL COMPLETED"
           echo "################################################################"
+
           git log -1 --format='commit: %H'
           git log -1 --format='subject: %s'
-          echo "Argon commit: $(git -C package/argon rev-parse HEAD 2>/dev/null || echo unknown)"
-          echo "Argon version: $(git -C package/argon describe --tags --always 2>/dev/null || echo unknown)"
+
           echo "ImmortalWrt commit: ${SOURCE_COMMIT:-unknown}"
+          echo "Argon commit: ${ARGON_COMMIT:-unknown}"
+          echo "Argon version: ${ARGON_VERSION:-unknown}"
           echo "Release: ${RELEASE_TAG:-not-created}"
           echo "Image: ${RELEASE_FILE:-not-created}"
+
+          echo
+          echo "CCache:"
+          ccache -s || true
+
           echo "################################################################"
