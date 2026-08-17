@@ -114,22 +114,39 @@ jobs:
 
           mkdir -p preflight
 
-          echo "===== Preserve ImmortalWrt official DAED package recipe ====="
+          echo "===== Locate ImmortalWrt official DAED package recipe ====="
 
-          # ImmortalWrt 25.12 already provides the official DAED OpenWrt
-          # package recipe at package/dae/daed. Keep that recipe intact.
-          # Do NOT delete package/dae before saving package/dae/daed: DAED is
-          # a subpackage of package/dae, not package/daed.
+          # ImmortalWrt 25.12 obtains the official DAED package recipe from
+          # the packages feed. It is NOT guaranteed to exist under
+          # package/dae/daed before feeds are installed. In the current
+          # ImmortalWrt tree the recipe is normally available as:
+          #   feeds/packages/net/daed/Makefile
+          #   feeds/small/daed/Makefile (fallback only)
+          # Save the official recipe before replacing package/dae with the
+          # kenzok8 DAE recipe.
           rm -rf /tmp/immortalwrt-daed-package
-          if [ -d package/dae/daed ]; then
-            cp -a package/dae/daed /tmp/immortalwrt-daed-package
-            echo "[ OK ] Saved package/dae/daed"
-          else
-            echo "[FAIL] ImmortalWrt official package/dae/daed not found"
+
+          OFFICIAL_DAED_SRC=""
+          for candidate in feeds/packages/net/daed feeds/small/daed package/feeds/packages/daed package/feeds/small/daed; do
+            if [ -f "$candidate/Makefile" ]; then
+              if grep -q '^PKG_SOURCE_URL:=https://github.com/daeuniverse/daed.git$' "$candidate/Makefile"; then
+                OFFICIAL_DAED_SRC="$candidate"
+                break
+              fi
+            fi
+          done
+
+          if [ -z "$OFFICIAL_DAED_SRC" ]; then
+            echo "[FAIL] ImmortalWrt official DAED recipe not found"
             echo "===== Search package tree for DAED ====="
-            find package feeds -type f -path '*/daed/Makefile' -print 2>/dev/null || true
+            find feeds package -type f -path '*/daed/Makefile' -print 2>/dev/null || true
+            echo "===== DAED source URLs found ====="
+            grep -R -n 'PKG_SOURCE_URL.*daeuniverse/daed' feeds package 2>/dev/null | head -20 || true
             exit 1
           fi
+
+          cp -a "$OFFICIAL_DAED_SRC" /tmp/immortalwrt-daed-package
+          echo "[ OK ] Official DAED recipe: $OFFICIAL_DAED_SRC"
 
           echo
           echo "===== Remove conflicting DAE/LuCI package copies ====="
@@ -182,7 +199,7 @@ jobs:
             exit 1
           fi
 
-          echo "[ OK ] DAED recipe restored at package/dae/daed"
+          echo "[ OK ] DAED recipe installed at package/dae/daed"
 
           echo
           echo "===== Normalize DAED APK package version ====="
