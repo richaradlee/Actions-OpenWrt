@@ -180,8 +180,6 @@ jobs:
           CONFIG_PACKAGE_luci-app-diskman=y
           CONFIG_PACKAGE_luci-app-irqbalance=y
           CONFIG_PACKAGE_luci-app-package-manager=y
-          CONFIG_PACKAGE_luci-app-ttyd=y
-          CONFIG_PACKAGE_luci-i18n-ttyd-zh-cn=y
 
           CONFIG_PACKAGE_luci-app-sqm=y
           CONFIG_PACKAGE_sqm-scripts=y
@@ -275,28 +273,41 @@ jobs:
           ccache -z
           ccache -s
 
-      # 11. Restore build caches
-      - name: Restore build caches
+      # 11. Restore download cache
+      - name: Restore download cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ./openwrt/dl
+          key: ${{ runner.os }}-immortalwrt-25.12-x86_64-dl
+
+      # 12. Restore ccache
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ./openwrt/.ccache
+          key: ${{ runner.os }}-immortalwrt-25.12-x86_64-ccache
+          restore-keys: |
+            ${{ runner.os }}-immortalwrt-25.12-x86_64-ccache-
+
+      # 13. Restore toolchain cache
+      - name: Restore toolchain cache
         uses: actions/cache/restore@v4
         with:
           path: |
-            ./openwrt/dl
             ./openwrt/staging_dir/host
             ./openwrt/staging_dir/toolchain-*
-            ./openwrt/.ccache
-          key: ${{ runner.os }}-immortalwrt-v4-x86_64-${{ hashFiles('openwrt/.config') }}
+          key: ${{ runner.os }}-immortalwrt-25.12-x86_64-toolchain-${{ hashFiles('openwrt/.config') }}
           restore-keys: |
-            ${{ runner.os }}-immortalwrt-v4-x86_64-
-            ${{ runner.os }}-immortalwrt-
+            ${{ runner.os }}-immortalwrt-25.12-x86_64-toolchain-
 
-      # 12. Run make defconfig
+      # 14. Run make defconfig
       - name: Run make defconfig
         working-directory: ./openwrt
         run: |
           set -o pipefail
           make defconfig 2>&1 | tee defconfig.log
 
-      # 13. Verify configuration
+      # 17. Verify configuration
       - name: Verify configuration
         working-directory: ./openwrt
         run: |
@@ -333,8 +344,6 @@ jobs:
             luci-app-daed \
             luci-app-lucky \
             luci-app-rtp2httpd \
-            luci-app-ttyd \
-            luci-i18n-ttyd-zh-cn \
             luci-app-argon-config \
             luci-app-upnp \
             miniupnpd-nftables \
@@ -424,7 +433,7 @@ jobs:
           echo "FINAL CONFIGURATION VERIFICATION PASSED"
           echo "============================================================"
 
-      # 14. Audit important components
+      # 18. Audit important components
       - name: Audit important components
         working-directory: ./openwrt
         run: |
@@ -438,10 +447,6 @@ jobs:
           echo "===== Argon ====="
           echo "Commit: ${ARGON_COMMIT}"
           echo "Version: ${ARGON_VERSION}"
-
-          echo
-          echo "===== Web Terminal ====="
-          grep -E '^CONFIG_PACKAGE_(luci-app-ttyd|luci-i18n-ttyd-zh-cn)=' .config || true
 
           echo
           echo "===== UPnP / PCP / NAT-PMP ====="
@@ -473,7 +478,7 @@ jobs:
           echo "===== Dependency warnings ====="
           grep -n -E 'WARNING:|depends on|dependency|not found|unknown symbol|invalid' defconfig.log || true
 
-      # 15. Build firmware
+      # 19. Build firmware
       - name: Build ImmortalWrt
         working-directory: ./openwrt
         env:
@@ -505,19 +510,33 @@ jobs:
           echo "============================================================"
           ccache -s || true
 
-      # 16. Save build caches
-      - name: Save build caches
+      # 23. Save download cache
+      - name: Save download cache
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: ./openwrt/dl
+          key: ${{ runner.os }}-immortalwrt-25.12-x86_64-dl
+
+      # 24. Save ccache
+      - name: Save ccache
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: ./openwrt/.ccache
+          key: ${{ runner.os }}-immortalwrt-25.12-x86_64-ccache
+
+      # 25. Save toolchain cache
+      - name: Save toolchain cache
         if: success()
         uses: actions/cache/save@v4
         with:
           path: |
-            ./openwrt/dl
             ./openwrt/staging_dir/host
             ./openwrt/staging_dir/toolchain-*
-            ./openwrt/.ccache
-          key: ${{ runner.os }}-immortalwrt-v4-x86_64-${{ hashFiles('openwrt/.config') }}
+          key: ${{ runner.os }}-immortalwrt-25.12-x86_64-toolchain-${{ hashFiles('openwrt/.config') }}
 
-      # 17. Collect EFI image and checksums
+      # 26. Collect EFI image and checksums
       - name: Collect release files
         working-directory: ./openwrt
         run: |
@@ -563,7 +582,7 @@ jobs:
           echo "============================================================"
           ls -lh release/
 
-      # 18. Upload firmware and diagnostics
+      # 27. Upload firmware and diagnostics
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
@@ -589,7 +608,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      # 19. Create GitHub Release
+      # 28. Create GitHub Release
       - name: Create GitHub Release
         if: success()
         uses: softprops/action-gh-release@v2
@@ -616,8 +635,6 @@ jobs:
             - WireGuard
             - OpenVPN
             - UPnP IGD
-            - NAT-PMP / PCP
-            - Vlmcsd KMS
 
             ### 源码
 
@@ -637,7 +654,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 20. Delete old workflow runs and final summary
+      # 29. Delete old workflow runs and final summary
       - name: Delete old workflow runs
         if: always()
         uses: Mattraks/delete-workflow-runs@v2
@@ -669,4 +686,4 @@ jobs:
           echo "CCache:"
           ccache -s || true
 
-          echo "################################################################"
+          echo "################################################################"          echo "################################################################"
