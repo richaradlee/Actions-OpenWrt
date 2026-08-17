@@ -1,5 +1,5 @@
-name: ImmortalWrt V2 TesT
- 
+name: ImmortalWrt x86 V2
+
 on:
   push:
     branches:
@@ -9,34 +9,26 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     if: github.event.repository.owner.id == github.event.sender.id
-
     permissions:
       contents: write
       actions: write
-
     name: Build ${{ matrix.target }}
-
     strategy:
       fail-fast: false
       matrix:
         target: [25.12]
 
     steps:
-
       # ============================================================
       # 1. Checkout
       # ============================================================
-
       - name: Checkout
         uses: actions/checkout@v4
-
 
       # ============================================================
       # 2. Maximize build space
       # ============================================================
-
       - name: Maximize build space
         uses: easimon/maximize-build-space@master
         with:
@@ -49,11 +41,9 @@ jobs:
           remove-codeql: 'true'
           remove-docker-images: 'true'
 
-
       # ============================================================
       # 3. System preparation
       # ============================================================
-
       - name: Space cleanup & Timezone
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -68,101 +58,39 @@ jobs:
             /usr/local/.ghcup \
             /usr/lib/jvm \
             /etc/mysql \
-            /etc/php \
-            || true
+            /etc/php || true
 
           sudo -E apt-get update
 
           sudo -E apt-get -y install \
-            ack \
-            antlr3 \
-            asciidoc \
-            autoconf \
-            automake \
-            autopoint \
-            binutils \
-            bison \
-            build-essential \
-            bzip2 \
-            ccache \
-            clang \
-            cmake \
-            cpio \
-            curl \
-            device-tree-compiler \
-            flex \
-            gawk \
-            gcc-multilib \
-            g++-multilib \
-            gettext \
-            genisoimage \
-            git \
-            gperf \
-            haveged \
-            help2man \
-            intltool \
-            libc6-dev-i386 \
-            libelf-dev \
-            libfuse-dev \
-            libglib2.0-dev \
-            libgmp3-dev \
-            libltdl-dev \
-            libmpc-dev \
-            libmpfr-dev \
-            libncurses5-dev \
-            libncursesw5-dev \
-            libpython3-dev \
-            libreadline-dev \
-            libssl-dev \
-            libtool \
-            llvm \
-            lrzsz \
-            ninja-build \
-            p7zip \
-            p7zip-full \
-            patch \
-            pkgconf \
-            python3 \
-            python3-pyelftools \
-            python3-setuptools \
-            qemu-utils \
-            rsync \
-            scons \
-            squashfs-tools \
-            subversion \
-            swig \
-            texinfo \
-            uglifyjs \
-            upx-ucl \
-            unzip \
-            vim \
-            wget \
-            xmlto \
-            xxd \
-            zlib1g-dev \
-            scdoc
+            ack antlr3 asciidoc autoconf automake autopoint binutils bison \
+            build-essential bzip2 ccache clang cmake cpio curl \
+            device-tree-compiler flex gawk gcc-multilib g++-multilib gettext \
+            genisoimage git gperf haveged help2man intltool libc6-dev-i386 \
+            libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev \
+            libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev \
+            libpython3-dev libreadline-dev libssl-dev libtool llvm lrzsz \
+            ninja-build p7zip p7zip-full patch pkgconf python3 \
+            python3-pyelftools python3-setuptools qemu-utils rsync scons \
+            squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip \
+            vim wget xmlto xxd zlib1g-dev scdoc
 
           sudo -E timedatectl set-timezone "Asia/Shanghai"
-
 
       # ============================================================
       # 4. Build date
       # ============================================================
-
       - name: Get current date
-        id: date
         env:
           TZ: Asia/Shanghai
         run: |
-          echo "date=$(TZ=Asia/Shanghai date +'%Y.%m.%d-%H%M')" >> $GITHUB_ENV
-          echo "date2=$(TZ=Asia/Shanghai date +'%m/%d %Y')" >> $GITHUB_ENV
-          echo "date3=$(TZ=Asia/Shanghai date +'%m.%d')" >> $GITHUB_ENV
-
+          echo "date=$(TZ=Asia/Shanghai date +'%Y.%m.%d-%H%M')" >> "$GITHUB_ENV"
+          echo "date2=$(TZ=Asia/Shanghai date +'%m/%d %Y')" >> "$GITHUB_ENV"
+          echo "date3=$(TZ=Asia/Shanghai date +'%m.%d')" >> "$GITHUB_ENV"
 
       # ============================================================
       # 5. Clone ImmortalWrt
       # ============================================================
-
       - name: Clone source code
         env:
           REPO_URL: https://github.com/immortalwrt/immortalwrt
@@ -173,623 +101,227 @@ jobs:
             -b "$REPO_BRANCH" \
             openwrt
 
-
       # ============================================================
       # 6. Update feeds
       # ============================================================
-
       - name: Update feeds
         working-directory: ./openwrt
         shell: bash
         run: |
           set -euo pipefail
-
           mkdir -p preflight
 
           echo "=================================================="
           echo " Adding third-party feeds"
           echo "=================================================="
 
-          sed -i \
-            '1i src-git kenzo https://github.com/kenzok8/openwrt-packages' \
-            feeds.conf.default
+          sed -i '1i src-git kenzo https://github.com/kenzok8/openwrt-packages' feeds.conf.default
+          sed -i '2i src-git small https://github.com/kenzok8/small' feeds.conf.default
+          sed -i '3i src-git vmware https://github.com/vmware/open-vm-tools' feeds.conf.default
+          sed -i '4i src-git rtp2httpd https://github.com/stackia/rtp2httpd.git' feeds.conf.default
+          sed -i '5i src-git lucky https://github.com/gdy666/luci-app-lucky' feeds.conf.default
 
-          sed -i \
-            '2i src-git small https://github.com/kenzok8/small' \
-            feeds.conf.default
-
-          sed -i \
-            '3i src-git vmware https://github.com/vmware/open-vm-tools' \
-            feeds.conf.default
-
-          sed -i \
-            '4i src-git rtp2httpd https://github.com/stackia/rtp2httpd.git' \
-            feeds.conf.default
-
-          sed -i \
-            '5i src-git lucky https://github.com/gdy666/luci-app-lucky' \
-            feeds.conf.default
-
-          echo
           echo "===== feeds.conf.default ====="
           cat feeds.conf.default | tee preflight/feeds.conf.default
 
+          echo "===== Updating feeds ====="
+          ./scripts/feeds update -a 2>&1 | tee preflight/feeds-update.log
 
-          echo
-          echo "=================================================="
-          echo " Updating feeds"
-          echo "=================================================="
-
-          ./scripts/feeds update -a \
-            2>&1 | tee preflight/feeds-update.log
-
-
-          # --------------------------------------------------------
-          # Remove conflicting packages
-          # --------------------------------------------------------
-
-          echo
           echo "===== Removing conflicting packages ====="
 
           rm -rf feeds/luci/applications/luci-app-mosdns
-
-          rm -rf \
-            feeds/packages/net/alist \
-            feeds/packages/net/adguardhome \
-            feeds/packages/net/mosdns \
-            feeds/packages/net/xray* \
-            feeds/packages/net/v2ray* \
-            feeds/packages/net/sing* \
-            feeds/packages/net/smartdns
-
+          rm -rf feeds/packages/net/alist
+          rm -rf feeds/packages/net/adguardhome
+          rm -rf feeds/packages/net/mosdns
+          rm -rf feeds/packages/net/xray*
+          rm -rf feeds/packages/net/v2ray*
+          rm -rf feeds/packages/net/sing*
+          rm -rf feeds/packages/net/smartdns
           rm -rf feeds/packages/utils/v2dat
-
           rm -rf feeds/packages/lang/golang
 
+          echo "===== Installing kenzok8 golang 1.26 ====="
 
-          # --------------------------------------------------------
-          # kenzok8 golang 1.26
-          # --------------------------------------------------------
-
-          echo
-          echo "===== Installing kenzok8/golang 1.26 ====="
-
-          git clone \
-            --depth 1 \
+          git clone --depth 1 \
             -b 1.26 \
             https://github.com/kenzok8/golang.git \
             feeds/packages/lang/golang
 
-
-          # --------------------------------------------------------
-          # Install feeds
-          # --------------------------------------------------------
-
-          echo
           echo "===== Installing feeds ====="
+          ./scripts/feeds install -a 2>&1 | tee preflight/feeds-install.log
 
-          ./scripts/feeds install -a \
-            2>&1 | tee preflight/feeds-install.log
-
-
-          # ============================================================
-          # Remove known problematic packages
-          # ============================================================
-
-          echo
           echo "===== Removing known problematic packages ====="
 
-          # ------------------------------------------------------------
-          # luci-app-fchomo
-          #
-          # small 中存在递归依赖问题。
-          # 同时删除 feed 源和 feeds install 后生成的 package 链接/目录。
-          # ------------------------------------------------------------
-
-          echo
-          echo "--- Removing luci-app-fchomo ---"
-
-          rm -rf \
-            feeds/small/luci-app-fchomo \
-            package/feeds/small/luci-app-fchomo
-
-          # 防止 package 被其它 feed 以不同路径安装
-          find package feeds \
-            -type d \
+          find package/feeds feeds -type d \
             -name "luci-app-fchomo" \
-            -prune \
-            -exec rm -rf {} + \
-            2>/dev/null || true
+            -print \
+            -exec rm -rf {} + 2>/dev/null || true
 
-
-          # ------------------------------------------------------------
-          # trojan-plus
-          # ------------------------------------------------------------
-
-          echo
-          echo "--- Removing trojan-plus ---"
-
-          rm -rf \
-            feeds/small/trojan-plus \
-            package/feeds/small/trojan-plus
-
-          find package feeds \
-            -type d \
+          find package/feeds feeds -type d \
             -name "trojan-plus" \
-            -prune \
-            -exec rm -rf {} + \
-            2>/dev/null || true
+            -print \
+            -exec rm -rf {} + 2>/dev/null || true
 
-
-          # ============================================================  
-          # Verify removal
-          # ============================================================
-          echo
-          echo "=================================================="
-          echo " Verifying removed packages"
-          echo "=================================================="
-
-
-          # ------------------------------------------------------------
-          # fchomo
-          #  ------------------------------------------------------------
-
-          echo
-          echo "===== fchomo ====="
-
-          FCHOMO_FOUND=$(find package feeds \
-            -type d \
-            -name "luci-app-fchomo" \
-            2>/dev/null || true)
-
-          if [ -n "$FCHOMO_FOUND" ]; then
-            echo "[FAIL] luci-app-fchomo still exists:"
-            echo "$FCHOMO_FOUND"
-            exit 1
-          else
-            echo "[ OK ] luci-app-fchomo completely removed"
-          fi
-          # ------------------------------------------------------------
-          # trojan-plus
-          # ------------------------------------------------------------
-          echo
-          echo "===== trojan-plus ====="
-
-          TROJAN_FOUND=$(find package feeds \
-            -type d \
-            -name "trojan-plus" \
-            2>/dev/null || true)
-
-          if [ -n "$TROJAN_FOUND" ]; then
-            echo "[FAIL] trojan-plus still exists:"
-            echo "$TROJAN_FOUND"
-            exit 1
-          else
-            echo "[ OK ] trojan-plus completely removed"
-          fi
-
-          echo
           echo "===== Feed status ====="
-
-          ./scripts/feeds list -s \
-            | tee preflight/feeds-status.txt
+          ./scripts/feeds list -s | tee preflight/feeds-status.txt
 
       # ============================================================
-      # PRE-FLIGHT - Package discovery / validation
-      #
-      # 目的：
-      #   1. 验证第三方 feed 是否正确
-      #   2. 验证关键软件包是否实际存在
-      #   3. 验证关键 Makefile 是否存在
-      #   4. 输出实际版本
-      #
-      # 注意：
-      #   本阶段绝不进行完整固件编译
+      # 7. PRE-FLIGHT - Package discovery
       # ============================================================
-
       - name: PRE-FLIGHT - Package discovery and validation
         working-directory: ./openwrt
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p preflight
 
           echo "=================================================="
           echo " PRE-FLIGHT - Package discovery / validation"
           echo "=================================================="
 
-          mkdir -p preflight
-
-
-          # ========================================================
-          # 1. Fixed package paths
-          #
-          # 这些路径来自当前 feeds 安装后的实际结构。
-          # 不再对 DAED 目录进行模糊猜测。
-          # ========================================================
-
-          PASSWALL2_PATH="feeds/small/luci-app-passwall2"
-
-          DAED_PATH="feeds/small/daed"
-
-          DAED_LUCI_PATH="feeds/luci/applications/luci-app-daed"
-
-          RTP2HTTPD_PATH="feeds/luci/applications/luci-app-rtp2httpd"
-
-          LUCKY_PATH="feeds/lucky/luci-app-lucky"
-
-          OPENCLASH_PATH="feeds/luci/applications/luci-app-openclash"
-
-
-          echo
-          echo "=================================================="
-          echo " Resolved package paths"
-          echo "=================================================="
-
-          echo "PASSWALL2_PATH=$PASSWALL2_PATH"
-          echo "DAED_PATH=$DAED_PATH"
-          echo "DAED_LUCI_PATH=$DAED_LUCI_PATH"
-          echo "RTP2HTTPD_PATH=$RTP2HTTPD_PATH"
-          echo "LUCKY_PATH=$LUCKY_PATH"
-          echo "OPENCLASH_PATH=$OPENCLASH_PATH"
-
-
-          # ========================================================
-          # 2. Helper functions
-          # ========================================================
-
-          check_dir() {
+          find_pkg_dir() {
             local name="$1"
-            local path="$2"
-
-            if [ -d "$path" ]; then
-              echo "[ OK ] $name directory"
-              echo "       $path"
-            else
-              echo "[FAIL] $name directory"
-              echo "       $path"
-              return 1
-            fi
+            find package/feeds feeds -type d -name "$name" 2>/dev/null | head -1
           }
 
-
-          check_file() {
+          find_pkg_makefile() {
             local name="$1"
-            local path="$2"
-
-            if [ -f "$path" ]; then
-              echo "[ OK ] $name"
-              echo "       $path"
-            else
-              echo "[FAIL] Missing $name"
-              echo "       $path"
-              return 1
-            fi
+            find package/feeds feeds -type f \
+              -path "*/$name/Makefile" \
+              2>/dev/null | head -1
           }
 
-
-          # ========================================================
-          # 3. Verify package directories
-          # ========================================================
-
-          echo
-          echo "=================================================="
-          echo " Verifying package directories"
-          echo "=================================================="
-
-          check_dir "PassWall2" "$PASSWALL2_PATH"
-
-          check_dir "DAED" "$DAED_PATH"
-
-          check_dir "DAED LuCI" "$DAED_LUCI_PATH"
-
-          check_dir "RTP2HTTPD" "$RTP2HTTPD_PATH"
-
-          check_dir "Lucky" "$LUCKY_PATH"
-
-          check_dir "OpenClash" "$OPENCLASH_PATH"
-
-
-          # ========================================================
-          # 4. Verify Makefiles
-          # ========================================================
-
-          echo
-          echo "=================================================="
-          echo " Verifying package Makefiles"
-          echo "=================================================="
-
-          check_file \
-            "PassWall2 Makefile" \
-            "$PASSWALL2_PATH/Makefile"
-
-          check_file \
-            "DAED Makefile" \
-            "$DAED_PATH/Makefile"
-
-          check_file \
-            "DAED LuCI Makefile" \
-            "$DAED_LUCI_PATH/Makefile"
-
-          check_file \
-            "RTP2HTTPD Makefile" \
-            "$RTP2HTTPD_PATH/Makefile"
-
-          check_file \
-            "Lucky Makefile" \
-            "$LUCKY_PATH/Makefile"
-
-          check_file \
-            "OpenClash Makefile" \
-            "$OPENCLASH_PATH/Makefile"
-
-
-          # ========================================================
-          # 5. Save package paths
-          # ========================================================
+          PASSWALL2_PATH="$(find_pkg_dir luci-app-passwall2 || true)"
+          DAED_PATH="$(find_pkg_dir daed || true)"
+          DAED_LUCI_PATH="$(find_pkg_dir luci-app-daed || true)"
+          RTP2HTTPD_PATH="$(find_pkg_dir luci-app-rtp2httpd || true)"
+          LUCKY_PATH="$(find_pkg_dir luci-app-lucky || true)"
+          OPENCLASH_PATH="$(find_pkg_dir luci-app-openclash || true)"
 
           {
-            echo "PASSWALL2_PATH=$PASSWALL2_PATH"
-            echo "DAED_PATH=$DAED_PATH"
-            echo "DAED_LUCI_PATH=$DAED_LUCI_PATH"
-            echo "RTP2HTTPD_PATH=$RTP2HTTPD_PATH"
-            echo "LUCKY_PATH=$LUCKY_PATH"
-            echo "OPENCLASH_PATH=$OPENCLASH_PATH"
-          } | tee preflight/package-paths.txt
-
-
-          # ========================================================
-          # 6. Package versions
-          #
-          # 不假设版本写在哪个固定位置。
-          # 只提取 PKG_VERSION / PKG_RELEASE。
-          # ========================================================
+            echo "PASSWALL2_PATH=${PASSWALL2_PATH:-NOT_FOUND}"
+            echo "DAED_PATH=${DAED_PATH:-NOT_FOUND}"
+            echo "DAED_LUCI_PATH=${DAED_LUCI_PATH:-NOT_FOUND}"
+            echo "RTP2HTTPD_PATH=${RTP2HTTPD_PATH:-NOT_FOUND}"
+            echo "LUCKY_PATH=${LUCKY_PATH:-NOT_FOUND}"
+            echo "OPENCLASH_PATH=${OPENCLASH_PATH:-NOT_FOUND}"
+          } | tee preflight/resolved-package-paths.txt
 
           echo
-          echo "=================================================="
-          echo " Third-party package versions"
-          echo "=================================================="
+          echo "===== Package directories ====="
 
+          for item in \
+            "luci-app-passwall2|$PASSWALL2_PATH" \
+            "daed|$DAED_PATH" \
+            "luci-app-daed|$DAED_LUCI_PATH" \
+            "luci-app-rtp2httpd|$RTP2HTTPD_PATH" \
+            "luci-app-lucky|$LUCKY_PATH" \
+            "luci-app-openclash|$OPENCLASH_PATH"
+          do
+            name="${item%%|*}"
+            path="${item#*|}"
 
-          extract_version() {
-            local name="$1"
-            local path="$2"
-
-            echo
-            echo "===== $name ====="
-
-            if [ -f "$path/Makefile" ]; then
-
-              grep -E \
-                '^[[:space:]]*(PKG_VERSION|PKG_RELEASE)[[:space:]]*[:?+]?=' \
-                "$path/Makefile" \
-                || echo "No PKG_VERSION / PKG_RELEASE found"
-
+            if [ -n "$path" ]; then
+              echo "[ OK ] $name -> $path"
             else
+              echo "[FAIL] $name not found"
+              exit 1
+            fi
+          done
 
-              echo "Makefile not found"
+          echo
+          echo "===== Package Makefiles ====="
 
+          check_makefile() {
+            local name="$1"
+            local path
+            path="$(find_pkg_makefile "$name" || true)"
+
+            if [ -n "$path" ]; then
+              echo "[ OK ] $name -> $path"
+            else
+              echo "[FAIL] Missing Makefile: $name"
+              exit 1
             fi
           }
 
-
-          extract_version \
-            "PASSWALL2" \
-            "$PASSWALL2_PATH"
-
-
-          extract_version \
-            "DAED" \
-            "$DAED_PATH"
-
-
-          extract_version \
-            "DAED LuCI" \
-            "$DAED_LUCI_PATH"
-
-
-          extract_version \
-            "RTP2HTTPD" \
-            "$RTP2HTTPD_PATH"
-
-
-          extract_version \
-            "LUCKY" \
-            "$LUCKY_PATH"
-
-
-          # ========================================================
-          # 7. Save complete Makefiles
-          #
-          # 方便失败后直接查看，而不用重新跑。
-          # ========================================================
+          check_makefile luci-app-passwall2
+          check_makefile daed
+          check_makefile luci-app-daed
+          check_makefile luci-app-rtp2httpd
+          check_makefile luci-app-lucky
+          check_makefile luci-app-openclash
 
           echo
-          echo "=================================================="
-          echo " Saving package Makefiles"
-          echo "=================================================="
-
+          echo "===== Actual package Makefile locations ====="
 
           {
-            echo "=================================================="
-            echo " PASSWALL2"
-            echo "=================================================="
-            sed -n '1,220p' "$PASSWALL2_PATH/Makefile"
-
-            echo
-            echo "=================================================="
-            echo " DAED"
-            echo "=================================================="
-            sed -n '1,220p' "$DAED_PATH/Makefile"
-
-            echo
-            echo "=================================================="
-            echo " DAED LuCI"
-            echo "=================================================="
-            sed -n '1,220p' "$DAED_LUCI_PATH/Makefile"
-
-            echo
-            echo "=================================================="
-            echo " RTP2HTTPD"
-            echo "=================================================="
-            sed -n '1,220p' "$RTP2HTTPD_PATH/Makefile"
-
-            echo
-            echo "=================================================="
-            echo " LUCKY"
-            echo "=================================================="
-            sed -n '1,220p' "$LUCKY_PATH/Makefile"
-
-          } | tee preflight/package-makefiles.txt
-
-
-          # ========================================================
-          # 8. DAED structure inspection
-          #
-          # DAED 当前结构比较特殊，因此额外输出目录结构。
-          # ========================================================
-
-          echo
-          echo "=================================================="
-          echo " DAED package structure"
-          echo "=================================================="
-
-          find "$DAED_PATH" \
-            -maxdepth 3 \
-            -type f \
-            | sort \
-            | tee preflight/daed-structure.txt
-
-
-          echo
-          echo "===== DAED LuCI structure ====="
-
-          find "$DAED_LUCI_PATH" \
-            -maxdepth 4 \
-            -type f \
-            | sort \
-            | tee preflight/daed-luci-structure.txt
-
-
-          # ========================================================
-          # 9. Dependency scan
-          # ========================================================
-
-          echo
-          echo "=================================================="
-          echo " Dependency scan"
-          echo "=================================================="
-
-
-          echo
-          echo "===== boost dependencies ====="
-
-          grep -R \
-            --line-number \
-            -E 'boost-system|boost-program_options|boost-date_time' \
-            feeds package \
-            2>/dev/null \
-            | tee preflight/boost-dependencies.txt \
-            || true
-
-
-          echo
-          echo "===== fchomo references ====="
-
-          grep -R \
-            --line-number \
-            "luci-app-fchomo" \
-            feeds package \
-            2>/dev/null \
-            | tee preflight/fchomo-references.txt \
-            || true
-
-
-          # ========================================================
-          # 10. Verify removed packages
-          # ========================================================
-
-          echo
-          echo "=================================================="
-          echo " Removed package validation"
-          echo "=================================================="
-
-
-          if [ -e package/feeds/small/luci-app-fchomo ]; then
-            echo "[FAIL] luci-app-fchomo still exists"
-            exit 1
-          else
-            echo "[ OK ] luci-app-fchomo removed"
-          fi
-
-
-          if [ -e package/feeds/small/trojan-plus ]; then
-            echo "[FAIL] trojan-plus still exists"
-            exit 1
-          else
-            echo "[ OK ] trojan-plus removed"
-          fi
-
-
-          # ========================================================
-          # 11. Final result
-          # ========================================================
-
-          echo
-          echo "=================================================="
-          echo " PRE-FLIGHT PACKAGE VALIDATION PASSED"
-          echo "=================================================="
+            find package/feeds feeds -type f \
+              \( \
+                -path "*/luci-app-passwall2/Makefile" \
+                -o -path "*/daed/Makefile" \
+                -o -path "*/luci-app-daed/Makefile" \
+                -o -path "*/luci-app-rtp2httpd/Makefile" \
+                -o -path "*/luci-app-lucky/Makefile" \
+                -o -path "*/luci-app-openclash/Makefile" \
+              \) \
+              2>/dev/null
+          } | tee preflight/package-makefile-paths.txt
 
       # ============================================================
       # 8. PRE-FLIGHT - Removed package validation
       # ============================================================
-
       - name: PRE-FLIGHT - Removed package validation
         working-directory: ./openwrt
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p preflight
 
           echo "=================================================="
           echo " PRE-FLIGHT - Removed package validation"
           echo "=================================================="
 
+          echo "===== luci-app-fchomo ====="
 
-          if find package/feeds feeds \
-            -type d \
+          FCHOMO_PATHS="$(find package/feeds feeds -type d \
             -name "luci-app-fchomo" \
-            -print \
-            | grep -q .
-          then
-            echo "[FAIL] luci-app-fchomo still exists"
+            2>/dev/null || true)"
+
+          if [ -n "$FCHOMO_PATHS" ]; then
+            echo "[FAIL] luci-app-fchomo still exists:"
+            echo "$FCHOMO_PATHS"
             exit 1
           else
             echo "[ OK ] luci-app-fchomo removed"
           fi
 
+          echo
+          echo "===== trojan-plus ====="
 
-          if find package/feeds feeds \
-            -type d \
+          TROJAN_PATHS="$(find package/feeds feeds -type d \
             -name "trojan-plus" \
-            -print \
-            | grep -q .
-          then
-            echo "[FAIL] trojan-plus still exists"
+            2>/dev/null || true)"
+
+          if [ -n "$TROJAN_PATHS" ]; then
+            echo "[FAIL] trojan-plus still exists:"
+            echo "$TROJAN_PATHS"
             exit 1
           else
             echo "[ OK ] trojan-plus removed"
           fi
 
-
-          echo
-          echo "=================================================="
-          echo " REMOVED PACKAGE VALIDATION PASSED"
-          echo "=================================================="
-
+          {
+            echo "luci-app-fchomo:"
+            [ -z "$FCHOMO_PATHS" ] && echo "REMOVED" || echo "$FCHOMO_PATHS"
+            echo
+            echo "trojan-plus:"
+            [ -z "$TROJAN_PATHS" ] && echo "REMOVED" || echo "$TROJAN_PATHS"
+          } | tee preflight/removed-packages.txt
 
       # ============================================================
       # 9. Get new themes
       # ============================================================
-
       - name: Get new themes
         working-directory: ./openwrt
         shell: bash
@@ -799,93 +331,56 @@ jobs:
           rm -rf package/feeds/luci/luci-theme-argon
           rm -rf package/feeds/luci/luci-app-argon-config
           rm -rf package/feeds/luci/luci-theme-infinityfreedom
-          rm -rf package/feeds/luci/luci/luci-theme-design
+          rm -rf package/feeds/luci/luci-theme-design
           rm -rf package/feeds/luci/luci-theme-opentopd
           rm -rf package/feeds/luci/luci-theme-neobird
 
-          git clone \
-            -b master \
+          git clone -b master \
             https://github.com/jerrykuku/luci-theme-argon.git \
             package/feeds/luci/luci-theme-argon
 
-          git clone \
-            -b master \
+          git clone -b master \
             https://github.com/jerrykuku/luci-app-argon-config.git \
             package/feeds/luci/luci-app-argon-config
-
 
       # ============================================================
       # 10. Generate configuration
       # ============================================================
-
       - name: Custom configure file
         working-directory: ./openwrt
         shell: bash
         run: |
           set -euo pipefail
-
           mkdir -p preflight
 
-          rm -f ./.config*
-          touch ./.config
-
-
-          # --------------------------------------------------------
-          # System timezone
-          # --------------------------------------------------------
+          rm -f .config .config.old
+          touch .config
 
           mkdir -p package/base-files/files/etc/config
 
           if [ -f package/base-files/files/etc/config/system ]; then
-
-            sed -i \
-              "s/^[[:space:]]*option timezone.*/	option timezone 'CST-8'/" \
+            sed -i "s/^[[:space:]]*option timezone.*/	option timezone 'CST-8'/" \
               package/base-files/files/etc/config/system
-
-            sed -i \
-              "s/^[[:space:]]*option zonename.*/	option zonename 'Asia\/Shanghai'/" \
+            sed -i "s/^[[:space:]]*option zonename.*/	option zonename 'Asia\/Shanghai'/" \
               package/base-files/files/etc/config/system
-
           else
-
             cat > package/base-files/files/etc/config/system <<'EOF'
           config system
                   option hostname 'OpenWrt'
                   option timezone 'CST-8'
                   option zonename 'Asia/Shanghai'
           EOF
-
           fi
-
-
-          # ========================================================
-          # Target
-          # ========================================================
 
           cat >> .config <<EOF
           CONFIG_TARGET_x86=y
           CONFIG_TARGET_x86_64=y
           CONFIG_TARGET_x86_64_Generic=y
-          EOF
-
-
-          # ========================================================
-          # Image size
-          # ========================================================
-
-          cat >> .config <<EOF
           CONFIG_TARGET_KERNEL_PARTSIZE=128
           CONFIG_TARGET_ROOTFS_PARTSIZE=640
           CONFIG_TARGET_IMAGES_GZIP=y
           CONFIG_EFI_IMAGES=y
-          EOF
 
-
-          # ========================================================
-          # IPv6
-          # ========================================================
-
-          cat >> .config <<EOF
           CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y
           CONFIG_PACKAGE_ipv6helper=y
           CONFIG_PACKAGE_odhcp6c=y
@@ -893,25 +388,11 @@ jobs:
           CONFIG_PACKAGE_luci-proto-ipv6=y
           CONFIG_PACKAGE_ip6tables=y
           CONFIG_PACKAGE_kmod-nft-nat6=y
-          EOF
 
-
-          # ========================================================
-          # Bonding
-          # ========================================================
-
-          cat >> .config <<EOF
           CONFIG_PACKAGE_kmod-bonding=y
           CONFIG_PACKAGE_proto-bonding=y
           CONFIG_PACKAGE_luci-proto-bonding=y
-          EOF
 
-
-          # ========================================================
-          # LuCI
-          # ========================================================
-
-          cat >> .config <<EOF
           CONFIG_PACKAGE_luci=y
           CONFIG_PACKAGE_luci-app-diskman=y
           CONFIG_PACKAGE_luci-app-lucky=y
@@ -924,37 +405,16 @@ jobs:
           CONFIG_PACKAGE_kmod-sched-cake=y
           CONFIG_PACKAGE_kmod-ifb=y
           CONFIG_PACKAGE_tc-full=y
-          EOF
 
-
-          # ========================================================
-          # IPTV
-          # ========================================================
-
-          cat >> .config <<EOF
           CONFIG_PACKAGE_luci-app-rtp2httpd=y
-          EOF
 
-
-          # ========================================================
-          # Proxy
-          # ========================================================
-
-          cat >> .config <<EOF
           CONFIG_PACKAGE_luci-app-ssr-plus=n
           CONFIG_PACKAGE_luci-app-passwall=n
           CONFIG_PACKAGE_luci-app-passwall2=y
           CONFIG_PACKAGE_luci-app-openclash=y
           CONFIG_PACKAGE_luci-app-mihomo=n
           CONFIG_PACKAGE_luci-app-homeproxy=n
-          EOF
 
-
-          # ========================================================
-          # DAED
-          # ========================================================
-
-          cat >> .config <<EOF
           CONFIG_PACKAGE_daed=y
           CONFIG_PACKAGE_luci-app-daed=y
           CONFIG_PACKAGE_kmod-nft-tproxy=y
@@ -962,14 +422,7 @@ jobs:
           CONFIG_PACKAGE_kmod-nft-compat=y
           CONFIG_PACKAGE_nftables=y
           CONFIG_PACKAGE_ip-full=y
-          EOF
 
-
-          # ========================================================
-          # VPN
-          # ========================================================
-
-          cat >> .config <<EOF
           CONFIG_PACKAGE_luci-app-softethervpn=n
           CONFIG_PACKAGE_luci-app-openvpn=y
           CONFIG_PACKAGE_luci-app-openvpn-server=y
@@ -979,23 +432,9 @@ jobs:
           CONFIG_PACKAGE_kmod-wireguard=y
           CONFIG_PACKAGE_luci-app-wireguard=y
           CONFIG_PACKAGE_luci-proto-wireguard=y
-          EOF
 
-
-          # ========================================================
-          # Theme
-          # ========================================================
-
-          cat >> .config <<EOF
           CONFIG_PACKAGE_luci-theme-argon=y
-          EOF
 
-
-          # ========================================================
-          # Common packages
-          # ========================================================
-
-          cat >> .config <<EOF
           CONFIG_PACKAGE_curl=y
           CONFIG_PACKAGE_htop=y
           CONFIG_PACKAGE_nano=y
@@ -1024,77 +463,44 @@ jobs:
           CONFIG_PACKAGE_irqbalance=y
           EOF
 
-
-          # --------------------------------------------------------
-          # Clean whitespace
-          # --------------------------------------------------------
-
-          sed -i 's/^[ \t]*//g' ./.config
-
-
-          # ========================================================
-          # Kconfig resolution
-          # ========================================================
+          sed -i 's/^[ \t]*//' .config
 
           echo "=================================================="
           echo " Running make defconfig"
           echo "=================================================="
 
-          make defconfig \
-            2>&1 | tee preflight/defconfig.log
-
-
-          # ========================================================
-          # Selected packages
-          # ========================================================
+          make defconfig 2>&1 | tee preflight/defconfig.log
 
           echo
           echo "=================================================="
           echo " Selected package configuration"
           echo "=================================================="
 
-
           grep -E \
-            '^CONFIG_PACKAGE_(luci-app-passwall2|luci-app-openclash|daed|luci-app-daed|luci-app-rtp2httpd|luci-app-lucky)=' \
+            '^CONFIG_PACKAGE_(luci-app-daed|luci-app-lucky|luci-app-openclash|luci-app-passwall2|luci-app-rtp2httpd|daed)=' \
             .config \
-            | tee preflight/selected-packages.txt \
-            || true
-
-
-          # ========================================================
-          # IMPORTANT:
-          # Hard fail if selected packages were disabled by Kconfig
-          # ========================================================
+            | tee preflight/selected-packages.txt || true
 
           echo
           echo "===== Required package config validation ====="
 
-
-          required_packages=(
-            "luci-app-passwall2"
-            "luci-app-openclash"
-            "daed"
-            "luci-app-daed"
-            "luci-app-rtp2httpd"
-            "luci-app-lucky"
+          REQUIRED_CONFIGS=(
+            "CONFIG_PACKAGE_luci-app-passwall2=y"
+            "CONFIG_PACKAGE_luci-app-openclash=y"
+            "CONFIG_PACKAGE_daed=y"
+            "CONFIG_PACKAGE_luci-app-daed=y"
+            "CONFIG_PACKAGE_luci-app-rtp2httpd=y"
+            "CONFIG_PACKAGE_luci-app-lucky=y"
           )
 
-
-          for pkg in "${required_packages[@]}"; do
-
-            if grep -q "^CONFIG_PACKAGE_${pkg}=y$" .config; then
-              echo "[ OK ] CONFIG_PACKAGE_${pkg}=y"
+          for cfg in "${REQUIRED_CONFIGS[@]}"; do
+            if grep -qx "$cfg" .config; then
+              echo "[ OK ] $cfg"
             else
-              echo "[FAIL] CONFIG_PACKAGE_${pkg} is not enabled"
+              echo "[FAIL] $cfg"
               exit 1
             fi
-
           done
-
-
-          # ========================================================
-          # Disabled problematic packages
-          # ========================================================
 
           echo
           echo "===== Disabled problematic packages ====="
@@ -1102,26 +508,28 @@ jobs:
           grep -E \
             '^CONFIG_PACKAGE_(luci-app-fchomo|trojan-plus)=' \
             .config \
-            | tee preflight/disabled-packages.txt \
-            || true
+            | tee preflight/disabled-packages.txt || true
 
+      # ============================================================
+      # 11. PRE-FLIGHT - LLVM environment
+      # ============================================================
+      - name: PRE-FLIGHT - LLVM environment
+        working-directory: ./openwrt
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p preflight
 
-          # ========================================================
-          # LLVM / Clang environment
-          # ========================================================
-
-          echo
           echo "=================================================="
-          echo " LLVM / Clang environment"
+          echo " PRE-FLIGHT - LLVM / Clang environment"
           echo "=================================================="
 
           {
             echo "PATH=$PATH"
-
-            echo "CC=${CC:-<not-set>}"
-            echo "HOSTCC=${HOSTCC:-<not-set>}"
-            echo "CLANG=${CLANG:-<not-set>}"
-            echo "LLVM=${LLVM:-<not-set>}"
+            echo "CC=${CC:-}"
+            echo "HOSTCC=${HOSTCC:-}"
+            echo "CLANG=${CLANG:-}"
+            echo "LLVM=${LLVM:-}"
 
             echo
             echo "--- clang ---"
@@ -1137,37 +545,7 @@ jobs:
             echo "--- gcc ---"
             command -v gcc || true
             gcc --version | head -1 || true
-
-            echo
-            echo "--- host gcc ---"
-            command -v gcc || true
-
           } | tee preflight/llvm.txt
-
-
-          # ========================================================
-          # Invalid clang search
-          # ========================================================
-
-          echo
-          echo "===== Search invalid clang ====="
-
-          grep -R \
-            --line-number \
-            "/invalid/clang" \
-            .config \
-            include \
-            package \
-            feeds \
-            2>/dev/null \
-            | head -100 \
-            | tee preflight/invalid-clang.txt \
-            || true
-
-
-          # ========================================================
-          # LLVM config
-          # ========================================================
 
           echo
           echo "===== LLVM config ====="
@@ -1175,123 +553,97 @@ jobs:
           grep -E \
             'CONFIG_(LLVM|BPF|DEBUG_INFO_BTF)' \
             .config \
-            | tee preflight/llvm-config.txt \
-            || true
-
-
-          echo
-          echo "=================================================="
-          echo " PRE-FLIGHT CONFIGURATION PASSED"
-          echo "=================================================="
-
+            | tee preflight/llvm-config.txt || true
 
       # ============================================================
-      # 11. PRE-FLIGHT - Package metadata check
+      # 12. PRE-FLIGHT - Dependency scan
       # ============================================================
-
-      - name: PRE-FLIGHT - Package metadata check
+      - name: PRE-FLIGHT - Dependency scan
         working-directory: ./openwrt
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p preflight
 
           echo "=================================================="
-          echo " PRE-FLIGHT - Package metadata check"
+          echo " PRE-FLIGHT - Dependency scan"
           echo "=================================================="
 
+          echo "===== boost dependencies ====="
 
-          # --------------------------------------------------------
-          # Re-discover paths.
-          #
-          # Do not hardcode package/feeds/small.
-          # --------------------------------------------------------
-
-          find_package_dir() {
-            local package_name="$1"
-
-            find package/feeds feeds \
-              -type d \
-              -name "$package_name" \
-              -print 2>/dev/null \
-              | head -1
-          }
-
-
-          PASSWALL2_PATH="$(find_package_dir luci-app-passwall2)"
-          DAED_PATH="$(find_package_dir daed)"
-          DAED_LUCI_PATH="$(find_package_dir luci-app-daed)"
-          RTP2HTTPD_PATH="$(find_package_dir luci-app-rtp2httpd)"
-
-
-          # --------------------------------------------------------
-          # Check selected Makefiles
-          # --------------------------------------------------------
-
-          files=(
-            "$PASSWALL2_PATH/Makefile"
-            "$DAED_PATH/Makefile"
-            "$DAED_LUCI_PATH/Makefile"
-            "$RTP2HTTPD_PATH/Makefile"
-          )
-
+          grep -R \
+            --line-number \
+            -E 'boost-system|boost-program_options|boost-date_time' \
+            package feeds \
+            2>/dev/null \
+            | tee preflight/boost-dependencies.txt || true
 
           echo
-          echo "===== Check selected Makefiles ====="
+          echo "===== fchomo references ====="
 
+          grep -R \
+            --line-number \
+            "luci-app-fchomo" \
+            package feeds \
+            2>/dev/null \
+            | tee preflight/fchomo-references.txt || true
 
-          for f in "${files[@]}"; do
+          echo
+          echo "===== trojan-plus references ====="
 
-            if [ -f "$f" ]; then
-              echo "[ OK ] $f"
-            else
-              echo "[FAIL] Missing $f"
+          grep -R \
+            --line-number \
+            "trojan-plus" \
+            package feeds \
+            2>/dev/null \
+            | tee preflight/trojan-plus-references.txt || true
+
+      # ============================================================
+      # 13. PRE-FLIGHT - Package metadata
+      # ============================================================
+      - name: PRE-FLIGHT - Package metadata
+        working-directory: ./openwrt
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p preflight
+
+          echo "=================================================="
+          echo " PRE-FLIGHT - Package metadata"
+          echo "=================================================="
+
+          find_makefile() {
+            local name="$1"
+            find package/feeds feeds -type f \
+              -path "*/$name/Makefile" \
+              2>/dev/null | head -1
+          }
+
+          for name in \
+            luci-app-passwall2 \
+            daed \
+            luci-app-daed \
+            luci-app-rtp2httpd \
+            luci-app-lucky \
+            luci-app-openclash
+          do
+            file="$(find_makefile "$name" || true)"
+
+            if [ -z "$file" ]; then
+              echo "[FAIL] Cannot locate Makefile for $name"
               exit 1
             fi
 
-          done
-
-
-          # --------------------------------------------------------
-          # Metadata
-          # --------------------------------------------------------
-
-          echo
-          echo "===== Package metadata ====="
-
-
-          {
-            echo "===== PassWall2 ====="
-            sed -n '1,220p' \
-              "$PASSWALL2_PATH/Makefile"
-
             echo
-            echo "===== DAED ====="
-            sed -n '1,220p' \
-              "$DAED_PATH/Makefile"
+            echo "===== $name ====="
+            echo "FILE: $file"
 
-            echo
-            echo "===== luci-app-daed ====="
-            sed -n '1,220p' \
-              "$DAED_LUCI_PATH/Makefile"
-
-            echo
-            echo "===== RTP2HTTPD ====="
-            sed -n '1,220p' \
-              "$RTP2HTTPD_PATH/Makefile"
-
-          } | tee preflight/package-makefiles-final.txt
-
-
-          echo
-          echo "=================================================="
-          echo " PACKAGE METADATA CHECK PASSED"
-          echo "=================================================="
-
+            sed -n '1,220p' "$file"
+          done | tee preflight/package-metadata.txt
 
       # ============================================================
-      # 12. Upload PRE-FLIGHT logs
+      # 14. Upload PRE-FLIGHT logs
       # ============================================================
-
       - name: Upload preflight logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -1301,13 +653,9 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-
       # ============================================================
-      # 13. Full firmware compilation
-      #
-      # 只有全部 PRE-FLIGHT 通过后才会执行。
+      # 15. Full firmware compilation
       # ============================================================
-
       - name: Compile the firmware
         working-directory: ./openwrt
         shell: bash
@@ -1315,19 +663,16 @@ jobs:
           set -o pipefail
 
           echo "=================================================="
-          echo " PRE-FLIGHT PASSED"
+          echo " ALL PRE-FLIGHT CHECKS PASSED"
           echo " Starting full firmware compilation"
           echo "=================================================="
 
           make download -j8
-
           make -j1 V=s 2>&1 | tee build.log
 
-
       # ============================================================
-      # 14. Compress build log
+      # 16. Compress build log
       # ============================================================
-
       - name: Compress build log
         if: always()
         working-directory: ./openwrt
@@ -1337,11 +682,9 @@ jobs:
             gzip -9 -f build.log
           fi
 
-
       # ============================================================
-      # 15. Upload build log
+      # 17. Upload build log
       # ============================================================
-
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
@@ -1351,11 +694,9 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-
       # ============================================================
-      # 16. Get kernel version
+      # 18. Get kernel version
       # ============================================================
-
       - name: Get kernel version
         working-directory: ./openwrt
         shell: bash
@@ -1380,18 +721,13 @@ jobs:
 
           KERNEL_VERSION="${VERSION}.${PATCHLEVEL}.${SUBLEVEL}"
 
-          echo "Kernel source:"
-          echo "$KERNEL_DIR"
-
+          echo "Kernel source: $KERNEL_DIR"
           echo "Kernel version: $KERNEL_VERSION"
-
           echo "KERNEL_VERSION=$KERNEL_VERSION" >> "$GITHUB_ENV"
 
-
       # ============================================================
-      # 17. Prepare artifacts
+      # 19. Prepare artifact
       # ============================================================
-
       - name: Prepare artifact
         working-directory: ./openwrt
         shell: bash
@@ -1433,18 +769,12 @@ jobs:
           cp \
             $(find ./bin/targets/ \
               -type f \
-              \( \
-                -name "*.buildinfo" \
-                -o \
-                -name "*.manifest" \
-              \)) \
+              \( -name "*.buildinfo" -o -name "*.manifest" \)) \
             ./artifact/buildinfo/
 
-
       # ============================================================
-      # 18. Deliver buildinfo
+      # 20. Deliver buildinfo
       # ============================================================
-
       - name: Deliver buildinfo
         uses: actions/upload-artifact@v4
         with:
@@ -1452,11 +782,9 @@ jobs:
           path: ./openwrt/artifact/buildinfo/
           retention-days: 30
 
-
       # ============================================================
-      # 19. Deliver packages
+      # 21. Deliver packages
       # ============================================================
-
       - name: Deliver package
         uses: actions/upload-artifact@v4
         with:
@@ -1464,11 +792,9 @@ jobs:
           path: ./openwrt/artifact/package/
           retention-days: 30
 
-
       # ============================================================
-      # 20. Deliver firmware
+      # 22. Deliver firmware
       # ============================================================
-
       - name: Deliver firmware
         uses: actions/upload-artifact@v4
         with:
@@ -1476,18 +802,14 @@ jobs:
           path: ./openwrt/artifact/firmware/
           retention-days: 30
 
-
       # ============================================================
-      # 21. GitHub Release
+      # 23. GitHub Release
       # ============================================================
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: OpenWrt-${{ env.date }}
-
           name: OpenWrt 25.12 x86_64 - ${{ env.date }}
-
           body: |
             ## OpenWrt 25.12 x86_64
 
@@ -1511,7 +833,6 @@ jobs:
             - Argon Theme
 
             **源码：** ImmortalWrt openwrt-25.12
-
             **软件库：** kenzok8/small
 
             > 本 Release 为 GitHub Actions 自动编译发布。
@@ -1519,19 +840,15 @@ jobs:
           files: |
             ./openwrt/artifact/firmware/*
             ./openwrt/artifact/buildinfo/*
-
           draft: false
           prerelease: false
           generate_release_notes: false
-
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-
       # ============================================================
-      # 22. Delete old workflow runs
+      # 24. Delete old workflow runs
       # ============================================================
-
       - name: Delete old workflow runs
         uses: Mattraks/delete-workflow-runs@v2
         continue-on-error: true
