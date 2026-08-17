@@ -289,16 +289,17 @@ jobs:
           ./scripts/feeds list -s \
             | tee preflight/feeds-status.txt
 
-
       # ============================================================
-      # 7. PRE-FLIGHT - Package discovery / validation
+      # PRE-FLIGHT - Package discovery / validation
       #
-      # 关键修改：
+      # 目的：
+      #   1. 验证第三方 feed 是否正确
+      #   2. 验证关键软件包是否实际存在
+      #   3. 验证关键 Makefile 是否存在
+      #   4. 输出实际版本
       #
-      # 不再假定：
-      # package/feeds/small/luci-app-daed
-      #
-      # 而是自动搜索实际安装位置。
+      # 注意：
+      #   本阶段绝不进行完整固件编译
       # ============================================================
 
       - name: PRE-FLIGHT - Package discovery and validation
@@ -314,60 +315,30 @@ jobs:
           mkdir -p preflight
 
 
-          # --------------------------------------------------------
-          # Find package directory
-          # --------------------------------------------------------
+          # ========================================================
+          # 1. Fixed package paths
+          #
+          # 这些路径来自当前 feeds 安装后的实际结构。
+          # 不再对 DAED 目录进行模糊猜测。
+          # ========================================================
 
-          find_package_dir() {
-            local package_name="$1"
+          PASSWALL2_PATH="feeds/small/luci-app-passwall2"
 
-            find package/feeds feeds \
-              -type d \
-              -name "$package_name" \
-              -print 2>/dev/null \
-              | head -1
-          }
+          DAED_PATH="feeds/small/daed"
 
+          DAED_LUCI_PATH="feeds/luci/applications/luci-app-daed"
 
-          # --------------------------------------------------------
-          # Resolve package
-          # --------------------------------------------------------
+          RTP2HTTPD_PATH="feeds/luci/applications/luci-app-rtp2httpd"
 
-          resolve_package() {
-            local package_name="$1"
-            local result
+          LUCKY_PATH="feeds/lucky/luci-app-lucky"
 
-            result="$(find_package_dir "$package_name")"
-
-            if [ -z "$result" ]; then
-              echo "[FAIL] $package_name"
-              echo "       Package directory not found."
-              return 1
-            fi
-
-            echo "[ OK ] $package_name"
-            echo "       Path: $result"
-
-            printf '%s\n' "$result"
-          }
+          OPENCLASH_PATH="feeds/luci/applications/luci-app-openclash"
 
 
           echo
           echo "=================================================="
-          echo " Discovering selected third-party packages"
+          echo " Resolved package paths"
           echo "=================================================="
-
-
-          PASSWALL2_PATH="$(resolve_package luci-app-passwall2 | tail -1)"
-          DAED_PATH="$(resolve_package daed | tail -1)"
-          DAED_LUCI_PATH="$(resolve_package luci-app-daed | tail -1)"
-          RTP2HTTPD_PATH="$(resolve_package luci-app-rtp2httpd | tail -1)"
-          LUCKY_PATH="$(resolve_package luci-app-lucky | tail -1)"
-          OPENCLASH_PATH="$(resolve_package luci-app-openclash | tail -1)"
-
-
-          echo
-          echo "===== Resolved package paths ====="
 
           echo "PASSWALL2_PATH=$PASSWALL2_PATH"
           echo "DAED_PATH=$DAED_PATH"
@@ -377,83 +348,116 @@ jobs:
           echo "OPENCLASH_PATH=$OPENCLASH_PATH"
 
 
-          cat > preflight/package-paths.txt <<EOF
-          PASSWALL2_PATH=$PASSWALL2_PATH
-          DAED_PATH=$DAED_PATH
-          DAED_LUCI_PATH=$DAED_LUCI_PATH
-          RTP2HTTPD_PATH=$RTP2HTTPD_PATH
-          LUCKY_PATH=$LUCKY_PATH
-          OPENCLASH_PATH=$OPENCLASH_PATH
-          EOF
+          # ========================================================
+          # 2. Helper functions
+          # ========================================================
+
+          check_dir() {
+            local name="$1"
+            local path="$2"
+
+            if [ -d "$path" ]; then
+              echo "[ OK ] $name directory"
+              echo "       $path"
+            else
+              echo "[FAIL] $name directory"
+              echo "       $path"
+              return 1
+            fi
+          }
 
 
-          # --------------------------------------------------------
-          # Verify Makefiles
-          # --------------------------------------------------------
+          check_file() {
+            local name="$1"
+            local path="$2"
+
+            if [ -f "$path" ]; then
+              echo "[ OK ] $name"
+              echo "       $path"
+            else
+              echo "[FAIL] Missing $name"
+              echo "       $path"
+              return 1
+            fi
+          }
+
+
+          # ========================================================
+          # 3. Verify package directories
+          # ========================================================
+
+          echo
+          echo "=================================================="
+          echo " Verifying package directories"
+          echo "=================================================="
+
+          check_dir "PassWall2" "$PASSWALL2_PATH"
+
+          check_dir "DAED" "$DAED_PATH"
+
+          check_dir "DAED LuCI" "$DAED_LUCI_PATH"
+
+          check_dir "RTP2HTTPD" "$RTP2HTTPD_PATH"
+
+          check_dir "Lucky" "$LUCKY_PATH"
+
+          check_dir "OpenClash" "$OPENCLASH_PATH"
+
+
+          # ========================================================
+          # 4. Verify Makefiles
+          # ========================================================
 
           echo
           echo "=================================================="
           echo " Verifying package Makefiles"
           echo "=================================================="
 
+          check_file \
+            "PassWall2 Makefile" \
+            "$PASSWALL2_PATH/Makefile"
 
-          for path in \
-            "$PASSWALL2_PATH" \
-            "$DAED_PATH" \
-            "$DAED_LUCI_PATH" \
-            "$RTP2HTTPD_PATH" \
-            "$LUCKY_PATH" \
-            "$OPENCLASH_PATH"
-          do
-            if [ ! -f "$path/Makefile" ]; then
-              echo "[FAIL] Missing Makefile: $path/Makefile"
-              exit 1
-            fi
+          check_file \
+            "DAED Makefile" \
+            "$DAED_PATH/Makefile"
 
-            echo "[ OK ] $path/Makefile"
-          done
+          check_file \
+            "DAED LuCI Makefile" \
+            "$DAED_LUCI_PATH/Makefile"
+
+          check_file \
+            "RTP2HTTPD Makefile" \
+            "$RTP2HTTPD_PATH/Makefile"
+
+          check_file \
+            "Lucky Makefile" \
+            "$LUCKY_PATH/Makefile"
+
+          check_file \
+            "OpenClash Makefile" \
+            "$OPENCLASH_PATH/Makefile"
 
 
-          # --------------------------------------------------------
-          # Save complete package information
-          # --------------------------------------------------------
-
-          echo
-          echo "=================================================="
-          echo " Package metadata"
-          echo "=================================================="
-
+          # ========================================================
+          # 5. Save package paths
+          # ========================================================
 
           {
-            echo "===== PASSWALL2 ====="
-            sed -n '1,220p' "$PASSWALL2_PATH/Makefile"
-
-            echo
-            echo "===== DAED ====="
-            sed -n '1,220p' "$DAED_PATH/Makefile"
-
-            echo
-            echo "===== LUCI-APP-DAED ====="
-            sed -n '1,220p' "$DAED_LUCI_PATH/Makefile"
-
-            echo
-            echo "===== RTP2HTTPD ====="
-            sed -n '1,220p' "$RTP2HTTPD_PATH/Makefile"
-
-            echo
-            echo "===== LUCKY ====="
-            sed -n '1,220p' "$LUCKY_PATH/Makefile"
-
-            echo
-            echo "===== OPENCLASH ====="
-            sed -n '1,220p' "$OPENCLASH_PATH/Makefile"
-
-          } | tee preflight/package-makefiles.txt
+            echo "PASSWALL2_PATH=$PASSWALL2_PATH"
+            echo "DAED_PATH=$DAED_PATH"
+            echo "DAED_LUCI_PATH=$DAED_LUCI_PATH"
+            echo "RTP2HTTPD_PATH=$RTP2HTTPD_PATH"
+            echo "LUCKY_PATH=$LUCKY_PATH"
+            echo "OPENCLASH_PATH=$OPENCLASH_PATH"
+          } | tee preflight/package-paths.txt
 
 
-          # --------------------------------------------------------
-          # Package versions
-          # --------------------------------------------------------
+          # ========================================================
+          # 6. Package versions
+          #
+          # 不假设版本写在哪个固定位置。
+          # 只提取 PKG_VERSION / PKG_RELEASE。
+          # ========================================================
 
           echo
           echo "=================================================="
@@ -468,63 +472,122 @@ jobs:
             echo
             echo "===== $name ====="
 
-            grep -R \
-              --line-number \
-              -E 'PKG_VERSION|PKG_RELEASE' \
-              "$path" \
-              2>/dev/null \
-              || true
+            if [ -f "$path/Makefile" ]; then
+
+              grep -E \
+                '^[[:space:]]*(PKG_VERSION|PKG_RELEASE)[[:space:]]*[:?+]?=' \
+                "$path/Makefile" \
+                || echo "No PKG_VERSION / PKG_RELEASE found"
+
+            else
+
+              echo "Makefile not found"
+
+            fi
           }
 
 
-          {
-            extract_version "PASSWALL2" "$PASSWALL2_PATH"
-            extract_version "DAED" "$DAED_PATH"
-            extract_version "LUCI-APP-DAED" "$DAED_LUCI_PATH"
-            extract_version "RTP2HTTPD" "$RTP2HTTPD_PATH"
-            extract_version "LUCKY" "$LUCKY_PATH"
-            extract_version "OPENCLASH" "$OPENCLASH_PATH"
-          } | tee preflight/package-versions.txt
+          extract_version \
+            "PASSWALL2" \
+            "$PASSWALL2_PATH"
 
 
-          # --------------------------------------------------------
-          # DAED source version
+          extract_version \
+            "DAED" \
+            "$DAED_PATH"
+
+
+          extract_version \
+            "DAED LuCI" \
+            "$DAED_LUCI_PATH"
+
+
+          extract_version \
+            "RTP2HTTPD" \
+            "$RTP2HTTPD_PATH"
+
+
+          extract_version \
+            "LUCKY" \
+            "$LUCKY_PATH"
+
+
+          # ========================================================
+          # 7. Save complete Makefiles
           #
-          # 不强制写死版本号。
-          # 先把实际 Feed 提供的版本完整记录下来。
-          # --------------------------------------------------------
+          # 方便失败后直接查看，而不用重新跑。
+          # ========================================================
 
           echo
-          echo "===== DAED version summary ====="
-
-          grep -R \
-            --line-number \
-            -E 'PKG_VERSION|PKG_RELEASE|PKG_SOURCE_VERSION' \
-            "$DAED_PATH" \
-            2>/dev/null \
-            | tee preflight/daed-version.txt \
-            || true
+          echo "=================================================="
+          echo " Saving package Makefiles"
+          echo "=================================================="
 
 
-          # --------------------------------------------------------
-          # RTP2HTTPD version
-          # --------------------------------------------------------
+          {
+            echo "=================================================="
+            echo " PASSWALL2"
+            echo "=================================================="
+            sed -n '1,220p' "$PASSWALL2_PATH/Makefile"
+
+            echo
+            echo "=================================================="
+            echo " DAED"
+            echo "=================================================="
+            sed -n '1,220p' "$DAED_PATH/Makefile"
+
+            echo
+            echo "=================================================="
+            echo " DAED LuCI"
+            echo "=================================================="
+            sed -n '1,220p' "$DAED_LUCI_PATH/Makefile"
+
+            echo
+            echo "=================================================="
+            echo " RTP2HTTPD"
+            echo "=================================================="
+            sed -n '1,220p' "$RTP2HTTPD_PATH/Makefile"
+
+            echo
+            echo "=================================================="
+            echo " LUCKY"
+            echo "=================================================="
+            sed -n '1,220p' "$LUCKY_PATH/Makefile"
+
+          } | tee preflight/package-makefiles.txt
+
+
+          # ========================================================
+          # 8. DAED structure inspection
+          #
+          # DAED 当前结构比较特殊，因此额外输出目录结构。
+          # ========================================================
 
           echo
-          echo "===== RTP2HTTPD version summary ====="
+          echo "=================================================="
+          echo " DAED package structure"
+          echo "=================================================="
 
-          grep -R \
-            --line-number \
-            -E 'PKG_VERSION|PKG_RELEASE|PKG_SOURCE_VERSION' \
-            "$RTP2HTTPD_PATH" \
-            2>/dev/null \
-            | tee preflight/rtp2httpd-version.txt \
-            || true
+          find "$DAED_PATH" \
+            -maxdepth 3 \
+            -type f \
+            | sort \
+            | tee preflight/daed-structure.txt
 
 
-          # --------------------------------------------------------
-          # Dependency scan
-          # --------------------------------------------------------
+          echo
+          echo "===== DAED LuCI structure ====="
+
+          find "$DAED_LUCI_PATH" \
+            -maxdepth 4 \
+            -type f \
+            | sort \
+            | tee preflight/daed-luci-structure.txt
+
+
+          # ========================================================
+          # 9. Dependency scan
+          # ========================================================
 
           echo
           echo "=================================================="
@@ -538,7 +601,7 @@ jobs:
           grep -R \
             --line-number \
             -E 'boost-system|boost-program_options|boost-date_time' \
-            package feeds \
+            feeds package \
             2>/dev/null \
             | tee preflight/boost-dependencies.txt \
             || true
@@ -550,17 +613,46 @@ jobs:
           grep -R \
             --line-number \
             "luci-app-fchomo" \
-            package feeds \
+            feeds package \
             2>/dev/null \
             | tee preflight/fchomo-references.txt \
             || true
 
 
+          # ========================================================
+          # 10. Verify removed packages
+          # ========================================================
+
           echo
           echo "=================================================="
-          echo " PACKAGE DISCOVERY / VALIDATION PASSED"
+          echo " Removed package validation"
           echo "=================================================="
 
+
+          if [ -e package/feeds/small/luci-app-fchomo ]; then
+            echo "[FAIL] luci-app-fchomo still exists"
+            exit 1
+          else
+            echo "[ OK ] luci-app-fchomo removed"
+          fi
+
+
+          if [ -e package/feeds/small/trojan-plus ]; then
+            echo "[FAIL] trojan-plus still exists"
+            exit 1
+          else
+            echo "[ OK ] trojan-plus removed"
+          fi
+
+
+          # ========================================================
+          # 11. Final result
+          # ========================================================
+
+          echo
+          echo "=================================================="
+          echo " PRE-FLIGHT PACKAGE VALIDATION PASSED"
+          echo "=================================================="
 
       # ============================================================
       # 8. PRE-FLIGHT - Removed package validation
