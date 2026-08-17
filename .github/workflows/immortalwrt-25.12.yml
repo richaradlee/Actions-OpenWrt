@@ -176,18 +176,6 @@ jobs:
 
       # ============================================================
       # 6. Update feeds
-      #
-      # small / kenzo:
-      #   第三方代理插件及依赖
-      #
-      # lucky:
-      #   Lucky
-      #
-      # rtp2httpd:
-      #   RTP2HTTPD
-      #
-      # vmware:
-      #   open-vm-tools
       # ============================================================
 
       - name: Update feeds
@@ -237,7 +225,7 @@ jobs:
 
 
           # --------------------------------------------------------
-          # Remove conflicting packages from ImmortalWrt feeds
+          # Remove conflicting packages
           # --------------------------------------------------------
 
           echo
@@ -260,7 +248,7 @@ jobs:
 
 
           # --------------------------------------------------------
-          # Use kenzok8 golang 1.26
+          # kenzok8 golang 1.26
           # --------------------------------------------------------
 
           echo
@@ -274,7 +262,7 @@ jobs:
 
 
           # --------------------------------------------------------
-          # Install all feeds
+          # Install feeds
           # --------------------------------------------------------
 
           echo
@@ -291,12 +279,7 @@ jobs:
           echo
           echo "===== Removing known problematic packages ====="
 
-          # luci-app-fchomo:
-          # small 中存在递归依赖问题
           rm -rf package/feeds/small/luci-app-fchomo
-
-          # trojan-plus:
-          # 当前版本存在 boost-system 等无效依赖问题
           rm -rf package/feeds/small/trojan-plus
 
 
@@ -308,98 +291,168 @@ jobs:
 
 
       # ============================================================
-      # 7. PRE-FLIGHT - Feed / Package validation
+      # 7. PRE-FLIGHT - Package discovery / validation
       #
-      # 这一阶段只检查，不进行完整固件编译。
-      # 如果这里失败，整个 workflow 会立即停止。
+      # 关键修改：
+      #
+      # 不再假定：
+      # package/feeds/small/luci-app-daed
+      #
+      # 而是自动搜索实际安装位置。
       # ============================================================
 
-      - name: PRE-FLIGHT - Feed and package validation
+      - name: PRE-FLIGHT - Package discovery and validation
         working-directory: ./openwrt
         shell: bash
         run: |
           set -euo pipefail
 
           echo "=================================================="
-          echo " PRE-FLIGHT - Feed / Package validation"
+          echo " PRE-FLIGHT - Package discovery / validation"
           echo "=================================================="
 
           mkdir -p preflight
 
 
           # --------------------------------------------------------
-          # Helper
+          # Find package directory
           # --------------------------------------------------------
 
-          check_pkg() {
-            local name="$1"
-            local path="$2"
+          find_package_dir() {
+            local package_name="$1"
 
-            if [ -e "$path" ]; then
-              echo "[ OK ] $name -> $path"
-            else
-              echo "[FAIL] $name -> $path"
-              return 1
-            fi
+            find package/feeds feeds \
+              -type d \
+              -name "$package_name" \
+              -print 2>/dev/null \
+              | head -1
           }
 
 
           # --------------------------------------------------------
-          # Check selected third-party packages
+          # Resolve package
+          # --------------------------------------------------------
+
+          resolve_package() {
+            local package_name="$1"
+            local result
+
+            result="$(find_package_dir "$package_name")"
+
+            if [ -z "$result" ]; then
+              echo "[FAIL] $package_name"
+              echo "       Package directory not found."
+              return 1
+            fi
+
+            echo "[ OK ] $package_name"
+            echo "       Path: $result"
+
+            printf '%s\n' "$result"
+          }
+
+
+          echo
+          echo "=================================================="
+          echo " Discovering selected third-party packages"
+          echo "=================================================="
+
+
+          PASSWALL2_PATH="$(resolve_package luci-app-passwall2 | tail -1)"
+          DAED_PATH="$(resolve_package daed | tail -1)"
+          DAED_LUCI_PATH="$(resolve_package luci-app-daed | tail -1)"
+          RTP2HTTPD_PATH="$(resolve_package luci-app-rtp2httpd | tail -1)"
+          LUCKY_PATH="$(resolve_package luci-app-lucky | tail -1)"
+          OPENCLASH_PATH="$(resolve_package luci-app-openclash | tail -1)"
+
+
+          echo
+          echo "===== Resolved package paths ====="
+
+          echo "PASSWALL2_PATH=$PASSWALL2_PATH"
+          echo "DAED_PATH=$DAED_PATH"
+          echo "DAED_LUCI_PATH=$DAED_LUCI_PATH"
+          echo "RTP2HTTPD_PATH=$RTP2HTTPD_PATH"
+          echo "LUCKY_PATH=$LUCKY_PATH"
+          echo "OPENCLASH_PATH=$OPENCLASH_PATH"
+
+
+          cat > preflight/package-paths.txt <<EOF
+          PASSWALL2_PATH=$PASSWALL2_PATH
+          DAED_PATH=$DAED_PATH
+          DAED_LUCI_PATH=$DAED_LUCI_PATH
+          RTP2HTTPD_PATH=$RTP2HTTPD_PATH
+          LUCKY_PATH=$LUCKY_PATH
+          OPENCLASH_PATH=$OPENCLASH_PATH
+          EOF
+
+
+          # --------------------------------------------------------
+          # Verify Makefiles
           # --------------------------------------------------------
 
           echo
-          echo "===== Selected third-party packages ====="
+          echo "=================================================="
+          echo " Verifying package Makefiles"
+          echo "=================================================="
 
-          check_pkg \
-            "luci-app-passwall2" \
-            "package/feeds/small/luci-app-passwall2"
 
-          check_pkg \
-            "daed" \
-            "package/feeds/small/daed"
+          for path in \
+            "$PASSWALL2_PATH" \
+            "$DAED_PATH" \
+            "$DAED_LUCI_PATH" \
+            "$RTP2HTTPD_PATH" \
+            "$LUCKY_PATH" \
+            "$OPENCLASH_PATH"
+          do
+            if [ ! -f "$path/Makefile" ]; then
+              echo "[FAIL] Missing Makefile: $path/Makefile"
+              exit 1
+            fi
 
-          check_pkg \
-            "luci-app-daed" \
-            "package/feeds/small/luci-app-daed"
-
-          check_pkg \
-            "luci-app-rtp2httpd" \
-            "package/feeds/rtp2httpd/luci-app-rtp2httpd"
-
-          check_pkg \
-            "luci-app-lucky" \
-            "package/feeds/lucky/luci-app-lucky"
-
-          check_pkg \
-            "luci-app-openclash" \
-            "feeds/luci/applications/luci-app-openclash"
+            echo "[ OK ] $path/Makefile"
+          done
 
 
           # --------------------------------------------------------
-          # Verify removed packages
+          # Save complete package information
           # --------------------------------------------------------
 
           echo
-          echo "===== Removed problematic packages ====="
+          echo "=================================================="
+          echo " Package metadata"
+          echo "=================================================="
 
-          if [ -e package/feeds/small/luci-app-fchomo ]; then
-            echo "[FAIL] luci-app-fchomo still exists"
-            exit 1
-          else
-            echo "[ OK ] luci-app-fchomo removed"
-          fi
 
-          if [ -e package/feeds/small/trojan-plus ]; then
-            echo "[FAIL] trojan-plus still exists"
-            exit 1
-          else
-            echo "[ OK ] trojan-plus removed"
-          fi
+          {
+            echo "===== PASSWALL2 ====="
+            sed -n '1,220p' "$PASSWALL2_PATH/Makefile"
+
+            echo
+            echo "===== DAED ====="
+            sed -n '1,220p' "$DAED_PATH/Makefile"
+
+            echo
+            echo "===== LUCI-APP-DAED ====="
+            sed -n '1,220p' "$DAED_LUCI_PATH/Makefile"
+
+            echo
+            echo "===== RTP2HTTPD ====="
+            sed -n '1,220p' "$RTP2HTTPD_PATH/Makefile"
+
+            echo
+            echo "===== LUCKY ====="
+            sed -n '1,220p' "$LUCKY_PATH/Makefile"
+
+            echo
+            echo "===== OPENCLASH ====="
+            sed -n '1,220p' "$OPENCLASH_PATH/Makefile"
+
+          } | tee preflight/package-makefiles.txt
 
 
           # --------------------------------------------------------
-          # Check package versions
+          # Package versions
           # --------------------------------------------------------
 
           echo
@@ -408,62 +461,76 @@ jobs:
           echo "=================================================="
 
 
+          extract_version() {
+            local name="$1"
+            local path="$2"
+
+            echo
+            echo "===== $name ====="
+
+            grep -R \
+              --line-number \
+              -E 'PKG_VERSION|PKG_RELEASE' \
+              "$path" \
+              2>/dev/null \
+              || true
+          }
+
+
+          {
+            extract_version "PASSWALL2" "$PASSWALL2_PATH"
+            extract_version "DAED" "$DAED_PATH"
+            extract_version "LUCI-APP-DAED" "$DAED_LUCI_PATH"
+            extract_version "RTP2HTTPD" "$RTP2HTTPD_PATH"
+            extract_version "LUCKY" "$LUCKY_PATH"
+            extract_version "OPENCLASH" "$OPENCLASH_PATH"
+          } | tee preflight/package-versions.txt
+
+
+          # --------------------------------------------------------
+          # DAED source version
+          #
+          # 不强制写死版本号。
+          # 先把实际 Feed 提供的版本完整记录下来。
+          # --------------------------------------------------------
+
           echo
-          echo "===== DAED ====="
+          echo "===== DAED version summary ====="
 
           grep -R \
             --line-number \
-            -E 'PKG_VERSION|PKG_RELEASE' \
-            package/feeds/small/daed \
+            -E 'PKG_VERSION|PKG_RELEASE|PKG_SOURCE_VERSION' \
+            "$DAED_PATH" \
             2>/dev/null \
             | tee preflight/daed-version.txt \
             || true
 
 
+          # --------------------------------------------------------
+          # RTP2HTTPD version
+          # --------------------------------------------------------
+
           echo
-          echo "===== RTP2HTTPD ====="
+          echo "===== RTP2HTTPD version summary ====="
 
           grep -R \
             --line-number \
-            -E 'PKG_VERSION|PKG_RELEASE' \
-            package/feeds/rtp2httpd \
+            -E 'PKG_VERSION|PKG_RELEASE|PKG_SOURCE_VERSION' \
+            "$RTP2HTTPD_PATH" \
             2>/dev/null \
             | tee preflight/rtp2httpd-version.txt \
             || true
 
 
-          echo
-          echo "===== PASSWALL2 ====="
-
-          grep -R \
-            --line-number \
-            -E 'PKG_VERSION|PKG_RELEASE' \
-            package/feeds/small/luci-app-passwall2 \
-            2>/dev/null \
-            | tee preflight/passwall2-version.txt \
-            || true
-
-
-          echo
-          echo "===== LUCKY ====="
-
-          grep -R \
-            --line-number \
-            -E 'PKG_VERSION|PKG_RELEASE' \
-            package/feeds/lucky \
-            2>/dev/null \
-            | tee preflight/lucky-version.txt \
-            || true
-
-
           # --------------------------------------------------------
-          # Search invalid dependencies
+          # Dependency scan
           # --------------------------------------------------------
 
           echo
           echo "=================================================="
           echo " Dependency scan"
           echo "=================================================="
+
 
           echo
           echo "===== boost dependencies ====="
@@ -491,12 +558,59 @@ jobs:
 
           echo
           echo "=================================================="
-          echo " Package validation completed"
+          echo " PACKAGE DISCOVERY / VALIDATION PASSED"
           echo "=================================================="
 
 
       # ============================================================
-      # 8. Get new themes
+      # 8. PRE-FLIGHT - Removed package validation
+      # ============================================================
+
+      - name: PRE-FLIGHT - Removed package validation
+        working-directory: ./openwrt
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "=================================================="
+          echo " PRE-FLIGHT - Removed package validation"
+          echo "=================================================="
+
+
+          if find package/feeds feeds \
+            -type d \
+            -name "luci-app-fchomo" \
+            -print \
+            | grep -q .
+          then
+            echo "[FAIL] luci-app-fchomo still exists"
+            exit 1
+          else
+            echo "[ OK ] luci-app-fchomo removed"
+          fi
+
+
+          if find package/feeds feeds \
+            -type d \
+            -name "trojan-plus" \
+            -print \
+            | grep -q .
+          then
+            echo "[FAIL] trojan-plus still exists"
+            exit 1
+          else
+            echo "[ OK ] trojan-plus removed"
+          fi
+
+
+          echo
+          echo "=================================================="
+          echo " REMOVED PACKAGE VALIDATION PASSED"
+          echo "=================================================="
+
+
+      # ============================================================
+      # 9. Get new themes
       # ============================================================
 
       - name: Get new themes
@@ -524,7 +638,7 @@ jobs:
 
 
       # ============================================================
-      # 9. Generate configuration
+      # 10. Generate configuration
       # ============================================================
 
       - name: Custom configure file
@@ -758,7 +872,10 @@ jobs:
           # ========================================================
 
           echo
-          echo "===== Selected packages ====="
+          echo "=================================================="
+          echo " Selected package configuration"
+          echo "=================================================="
+
 
           grep -E \
             '^CONFIG_PACKAGE_(luci-app-passwall2|luci-app-openclash|daed|luci-app-daed|luci-app-rtp2httpd|luci-app-lucky)=' \
@@ -766,6 +883,41 @@ jobs:
             | tee preflight/selected-packages.txt \
             || true
 
+
+          # ========================================================
+          # IMPORTANT:
+          # Hard fail if selected packages were disabled by Kconfig
+          # ========================================================
+
+          echo
+          echo "===== Required package config validation ====="
+
+
+          required_packages=(
+            "luci-app-passwall2"
+            "luci-app-openclash"
+            "daed"
+            "luci-app-daed"
+            "luci-app-rtp2httpd"
+            "luci-app-lucky"
+          )
+
+
+          for pkg in "${required_packages[@]}"; do
+
+            if grep -q "^CONFIG_PACKAGE_${pkg}=y$" .config; then
+              echo "[ OK ] CONFIG_PACKAGE_${pkg}=y"
+            else
+              echo "[FAIL] CONFIG_PACKAGE_${pkg} is not enabled"
+              exit 1
+            fi
+
+          done
+
+
+          # ========================================================
+          # Disabled problematic packages
+          # ========================================================
 
           echo
           echo "===== Disabled problematic packages ====="
@@ -847,11 +999,7 @@ jobs:
 
 
       # ============================================================
-      # 10. Preflight package metadata
-      #
-      # 注意：
-      # 不执行完整 package compile。
-      # 这里只做非常轻量的 metadata/index 检查。
+      # 11. PRE-FLIGHT - Package metadata check
       # ============================================================
 
       - name: PRE-FLIGHT - Package metadata check
@@ -864,52 +1012,87 @@ jobs:
           echo " PRE-FLIGHT - Package metadata check"
           echo "=================================================="
 
-          mkdir -p preflight
+
+          # --------------------------------------------------------
+          # Re-discover paths.
+          #
+          # Do not hardcode package/feeds/small.
+          # --------------------------------------------------------
+
+          find_package_dir() {
+            local package_name="$1"
+
+            find package/feeds feeds \
+              -type d \
+              -name "$package_name" \
+              -print 2>/dev/null \
+              | head -1
+          }
+
+
+          PASSWALL2_PATH="$(find_package_dir luci-app-passwall2)"
+          DAED_PATH="$(find_package_dir daed)"
+          DAED_LUCI_PATH="$(find_package_dir luci-app-daed)"
+          RTP2HTTPD_PATH="$(find_package_dir luci-app-rtp2httpd)"
+
+
+          # --------------------------------------------------------
+          # Check selected Makefiles
+          # --------------------------------------------------------
+
+          files=(
+            "$PASSWALL2_PATH/Makefile"
+            "$DAED_PATH/Makefile"
+            "$DAED_LUCI_PATH/Makefile"
+            "$RTP2HTTPD_PATH/Makefile"
+          )
+
 
           echo
           echo "===== Check selected Makefiles ====="
 
-          files=(
-            "package/feeds/small/luci-app-passwall2/Makefile"
-            "package/feeds/small/daed/Makefile"
-            "package/feeds/small/luci-app-daed/Makefile"
-            "package/feeds/rtp2httpd/luci-app-rtp2httpd/Makefile"
-          )
 
           for f in "${files[@]}"; do
+
             if [ -f "$f" ]; then
               echo "[ OK ] $f"
             else
               echo "[FAIL] Missing $f"
               exit 1
             fi
+
           done
 
+
+          # --------------------------------------------------------
+          # Metadata
+          # --------------------------------------------------------
 
           echo
           echo "===== Package metadata ====="
 
+
           {
             echo "===== PassWall2 ====="
-            sed -n '1,180p' \
-              package/feeds/small/luci-app-passwall2/Makefile
+            sed -n '1,220p' \
+              "$PASSWALL2_PATH/Makefile"
 
             echo
             echo "===== DAED ====="
-            sed -n '1,180p' \
-              package/feeds/small/daed/Makefile
+            sed -n '1,220p' \
+              "$DAED_PATH/Makefile"
 
             echo
             echo "===== luci-app-daed ====="
-            sed -n '1,180p' \
-              package/feeds/small/luci-app-daed/Makefile
+            sed -n '1,220p' \
+              "$DAED_LUCI_PATH/Makefile"
 
             echo
             echo "===== RTP2HTTPD ====="
-            sed -n '1,180p' \
-              package/feeds/rtp2httpd/luci-app-rtp2httpd/Makefile
+            sed -n '1,220p' \
+              "$RTP2HTTPD_PATH/Makefile"
 
-          } | tee preflight/package-makefiles.txt
+          } | tee preflight/package-makefiles-final.txt
 
 
           echo
@@ -919,9 +1102,7 @@ jobs:
 
 
       # ============================================================
-      # 11. Upload PRE-FLIGHT logs
-      #
-      # 只要前面的步骤失败，也能拿到诊断信息。
+      # 12. Upload PRE-FLIGHT logs
       # ============================================================
 
       - name: Upload preflight logs
@@ -935,9 +1116,9 @@ jobs:
 
 
       # ============================================================
-      # 12. Full firmware compilation
+      # 13. Full firmware compilation
       #
-      # 只有所有 PRE-FLIGHT 检查通过后才会执行。
+      # 只有全部 PRE-FLIGHT 通过后才会执行。
       # ============================================================
 
       - name: Compile the firmware
@@ -957,7 +1138,7 @@ jobs:
 
 
       # ============================================================
-      # 13. Compress build log
+      # 14. Compress build log
       # ============================================================
 
       - name: Compress build log
@@ -971,7 +1152,7 @@ jobs:
 
 
       # ============================================================
-      # 14. Upload build log
+      # 15. Upload build log
       # ============================================================
 
       - name: Upload build log
@@ -985,7 +1166,7 @@ jobs:
 
 
       # ============================================================
-      # 15. Get kernel version
+      # 16. Get kernel version
       # ============================================================
 
       - name: Get kernel version
@@ -1021,7 +1202,7 @@ jobs:
 
 
       # ============================================================
-      # 16. Prepare artifacts
+      # 17. Prepare artifacts
       # ============================================================
 
       - name: Prepare artifact
@@ -1074,7 +1255,7 @@ jobs:
 
 
       # ============================================================
-      # 17. Deliver buildinfo
+      # 18. Deliver buildinfo
       # ============================================================
 
       - name: Deliver buildinfo
@@ -1086,7 +1267,7 @@ jobs:
 
 
       # ============================================================
-      # 18. Deliver packages
+      # 19. Deliver packages
       # ============================================================
 
       - name: Deliver package
@@ -1098,7 +1279,7 @@ jobs:
 
 
       # ============================================================
-      # 19. Deliver firmware
+      # 20. Deliver firmware
       # ============================================================
 
       - name: Deliver firmware
@@ -1110,7 +1291,7 @@ jobs:
 
 
       # ============================================================
-      # 20. GitHub Release
+      # 21. GitHub Release
       # ============================================================
 
       - name: Create GitHub Release
@@ -1161,7 +1342,7 @@ jobs:
 
 
       # ============================================================
-      # 21. Delete old workflow runs
+      # 22. Delete old workflow runs
       # ============================================================
 
       - name: Delete old workflow runs
