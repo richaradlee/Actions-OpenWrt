@@ -1,5 +1,5 @@
-name: ImmortalWrt x86 V2
-
+name: ImmortalWrt V2 TesT
+ 
 on:
   push:
     branches:
@@ -1117,20 +1117,30 @@ jobs:
 
           {
             echo "PATH=$PATH"
-            echo "CC=$CC"
-            echo "HOSTCC=$HOSTCC"
-            echo "CLANG=$CLANG"
-            echo "LLVM=$LLVM"
+
+            echo "CC=${CC:-<not-set>}"
+            echo "HOSTCC=${HOSTCC:-<not-set>}"
+            echo "CLANG=${CLANG:-<not-set>}"
+            echo "LLVM=${LLVM:-<not-set>}"
 
             echo
             echo "--- clang ---"
-            which clang || true
+            command -v clang || true
             clang --version || true
 
             echo
             echo "--- llvm-config ---"
-            which llvm-config || true
+            command -v llvm-config || true
             llvm-config --version || true
+
+            echo
+            echo "--- gcc ---"
+            command -v gcc || true
+            gcc --version | head -1 || true
+
+            echo
+            echo "--- host gcc ---"
+            command -v gcc || true
 
           } | tee preflight/llvm.txt
 
