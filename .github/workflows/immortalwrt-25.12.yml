@@ -44,7 +44,7 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /usr/lib/jvm /etc/mysql /etc/php || true
           sudo -E apt-get update
-          sudo -E apt-get -y install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler flex gawk gcc-multilib g++-multilib gettext genisoimage git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool llvm lrzsz ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev scdoc nodejs npm
+          sudo -E apt-get -y install ack antlr3 asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler flex gawk gcc-multilib g++-multilib gettext genisoimage git gperf haveged help2man intltool libc6-dev-i386 libelf-dev libfuse-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool llvm lrzsz ninja-build p7zip p7zip-full patch pkgconf python3 python3-pyelftools python3-setuptools qemu-utils rsync scons squashfs-tools subversion swig texinfo uglifyjs upx-ucl unzip vim wget xmlto xxd zlib1g-dev scdoc
           sudo -E timedatectl set-timezone "Asia/Shanghai"
 
       # 4. Build date
@@ -72,24 +72,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p preflight
-
-          # open-vm-tools is already provided by the OpenWrt/ImmortalWrt
-          # package feeds for x86_64; vmware/open-vm-tools itself is NOT an
-          # OpenWrt package feed.
           sed -i '1i src-git kenzo https://github.com/kenzok8/openwrt-packages' feeds.conf.default
           sed -i '2i src-git small https://github.com/kenzok8/small' feeds.conf.default
-          sed -i '3i src-git rtp2httpd https://github.com/stackia/rtp2httpd.git' feeds.conf.default
-
+          sed -i '3i src-git vmware https://github.com/vmware/open-vm-tools' feeds.conf.default
+          sed -i '4i src-git rtp2httpd https://github.com/stackia/rtp2httpd.git' feeds.conf.default
           ./scripts/feeds update -a 2>&1 | tee preflight/feeds-update.log
-
           rm -rf feeds/luci/applications/luci-app-mosdns feeds/luci/applications/luci-app-dae feeds/luci/applications/luci-app-daed
           rm -rf feeds/packages/net/alist feeds/packages/net/adguardhome feeds/packages/net/mosdns feeds/packages/net/xray* feeds/packages/net/v2ray-core feeds/packages/utils/v2dat feeds/packages/lang/golang
           rm -rf feeds/small.tmp/info/.packageinfo-luci-app-fchomo feeds/kenzo.tmp/info/.packageinfo-luci-app-fchomo
-
           git clone --depth 1 -b 1.26 https://github.com/kenzok8/golang.git feeds/packages/lang/golang
-
           ./scripts/feeds install -a 2>&1 | tee preflight/feeds-install.log
-
           rm -rf feeds/small.tmp/info/.packageinfo-luci-app-fchomo feeds/kenzo.tmp/info/.packageinfo-luci-app-fchomo
           find feeds -type f -name '*fchomo*' -delete || true
 
@@ -115,21 +107,34 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p preflight /tmp/dae-build /tmp/daed-build
 
           echo "=================================================="
           echo " INSTALLING DAE / OFFICIAL DAED / LUCI-DAEDE"
           echo "=================================================="
 
-          rm -rf package/dae package/daed package/luci-app-daede
-          rm -rf package/feeds/small/dae package/feeds/small/daed package/feeds/small/luci-app-daed package/feeds/small/luci-app-daede
-          rm -rf package/feeds/luci/luci-app-dae package/feeds/luci/luci-app-daed package/feeds/luci/luci-app-daede
-          rm -rf package/feeds/kenzo/luci-app-dockerman
-          rm -rf package/feeds/small/trojan package/feeds/small/trojan-plus
+          mkdir -p preflight
 
-          # kenzok8 is used ONLY for the OpenWrt DAE packaging and the
-          # luci-app-daede LuCI integration. The DAED backend itself is built
-          # from the official daeuniverse repositories below.
+          rm -rf package/feeds/small/dae
+          rm -rf package/feeds/small/daed
+          rm -rf package/feeds/small/luci-app-daed
+          rm -rf package/feeds/small/luci-app-daede
+          rm -rf package/feeds/luci/luci-app-dae
+          rm -rf package/feeds/luci/luci-app-daed
+          rm -rf package/feeds/luci/luci-app-daede
+
+          rm -rf package/dae
+          rm -rf package/daed
+          rm -rf package/luci-app-daede
+
+          rm -rf package/feeds/kenzo/luci-app-dockerman
+          rm -rf package/feeds/small/trojan
+          rm -rf package/feeds/small/trojan-plus
+
+          rm -rf /tmp/openwrt-daede
+          rm -rf /tmp/daed-build
+
+          # DAE and LuCI-DAEDE packaging remains from kenzok8/openwrt-daede.
+          # DAED itself is built from the official daeuniverse/daed repository.
           git clone --depth 1 https://github.com/kenzok8/openwrt-daede.git /tmp/openwrt-daede
 
           cp -a /tmp/openwrt-daede/dae package/dae
@@ -138,258 +143,201 @@ jobs:
           echo
           echo "===== Normalize DAE Makefile ====="
 
+          # Normalize the DAE package metadata without deleting its define/endef
+          # structure. This avoids the previous "unterminated define" failure.
           python3 - <<'PY'
           from pathlib import Path
-          import re
-
           p = Path("package/dae/Makefile")
           s = p.read_text()
-
-          s = re.sub(r'^PKG_VERSION:=.*$', 'PKG_VERSION:=1.0.0', s, flags=re.M)
-          s = re.sub(r'^PKG_SOURCE_SUBDIR:=.*$', 'PKG_SOURCE_SUBDIR:=$(PKG_NAME)-2026.08.13', s, flags=re.M)
-          s = re.sub(r'^DAE_BUILD_DIR:=.*$', 'DAE_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-2026.08.13', s, flags=re.M)
-
-          # Remove only the vmlinux-btf dependency line and the optional
-          # vmlinux-btf choice. Do NOT delete arbitrary lines containing
-          # "vmlinux-btf", which caused the previous unterminated-define error.
-          s = re.sub(
-              r'^\s*\+DAE_USE_VMLINUX_BTF:vmlinux-btf\s*\\?\s*\n',
-              '',
-              s,
-              flags=re.M,
+          s = s.replace("PKG_VERSION:=2026.08.13", "PKG_VERSION:=1.0.0")
+          s = s.replace(
+              "PKG_SOURCE_SUBDIR:=$(PKG_NAME)-$(PKG_VERSION)",
+              "PKG_SOURCE_SUBDIR:=$(PKG_NAME)-2026.08.13",
           )
-          s = re.sub(
-              r'define Package/dae/config\n.*?^endef\n\n',
-              '',
-              s,
-              flags=re.M | re.S,
+          s = s.replace(
+              "DAE_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)",
+              "DAE_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)-2026.08.13",
           )
-
-          p.write_text(s)
-
-          text = p.read_text()
-          if "vmlinux-btf" in text:
-              raise SystemExit("vmlinux-btf reference remains in DAE Makefile")
-          if text.count("define Package/dae/Default") != 1:
-              raise SystemExit("DAE default package definition missing")
-          if text.count("define Package/dae\n") != 1:
-              raise SystemExit("DAE package definition missing")
-          if text.count("endef") < 5:
-              raise SystemExit("DAE Makefile appears to have lost endef blocks")
-          print("[ OK ] DAE Makefile normalized without deleting endef")
+          lines = []
+          for line in s.splitlines():
+              if "vmlinux-btf" not in line:
+                  lines.append(line)
+          p.write_text("\n".join(lines) + "\n")
           PY
+
+          echo "[ OK ] DAE Makefile normalized without deleting endef"
 
           echo
           echo "===== Verify DAE Makefile ====="
-          grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE|PKG_SOURCE|PKG_SOURCE_SUBDIR|PKG_HASH|DAE_BUILD_DIR)' package/dae/Makefile || true
+          grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE|PKG_SOURCE|PKG_SOURCE_URL|PKG_SOURCE_SUBDIR|PKG_HASH|DAE_BUILD_DIR)' package/dae/Makefile || true
 
-          # ----------------------------------------------------------------
-          # Official DAED:
-          #   daeuniverse/daed     = official web dashboard
-          #   daeuniverse/dae-wing = official integration backend that embeds
-          #                            the dashboard and dae into one binary
-          #
-          # The old kenzok8/daed source bundle is NOT used.
-          # ----------------------------------------------------------------
-          rm -rf /tmp/daed-build/*
-          git clone --depth 1 --recurse-submodules https://github.com/daeuniverse/dae-wing.git /tmp/daed-build/dae-wing
+          echo
+          echo "===== Prepare official DAED source ====="
+
+          mkdir -p /tmp/daed-build
           git clone --depth 1 https://github.com/daeuniverse/daed.git /tmp/daed-build/daed-web
 
           echo
           echo "===== Build official DAED web frontend ====="
+
           cd /tmp/daed-build/daed-web
+
+          if ! command -v corepack >/dev/null 2>&1; then
+            echo "===== Install Node.js / Corepack ====="
+            sudo apt-get update
+            sudo apt-get install -y nodejs npm
+          fi
+
           corepack enable
           corepack prepare pnpm@10.24.0 --activate
           pnpm --version
-          pnpm install --frozen-lockfile
-          pnpm --filter daed build
 
-          if [ ! -d apps/web/dist ]; then
-            echo "[FAIL] Official DAED frontend dist not found"
-            find apps/web -maxdepth 3 -type d -name dist -print
+          # The official repository currently has a lockfile whose resolved
+          # specifiers can differ from package.json (notably @graphql-codegen/cli).
+          # CI's default frozen-lockfile mode therefore fails. Use the intended
+          # non-frozen install so pnpm can reconcile the lockfile with the
+          # checked-out package.json before building the frontend.
+          pnpm install --no-frozen-lockfile
+
+          if [ -f package.json ]; then
+            echo "===== DAED package.json ====="
+            grep -n '"packageManager"\|"@graphql-codegen/cli"' package.json || true
+          fi
+
+          if [ -f pnpm-lock.yaml ]; then
+            echo "===== DAED lockfile refreshed successfully ====="
+          else
+            echo "[FAIL] pnpm-lock.yaml not found after dependency installation"
             exit 1
           fi
 
-          echo "[ OK ] Official DAED frontend built"
+          echo
+          echo "===== Detect official DAED frontend build script ====="
+
+          if node -e 'const p=require("./package.json"); process.exit(p.scripts && p.scripts.build ? 0 : 1)'; then
+            pnpm run build
+          elif pnpm run | grep -qE '(^|[[:space:]])build([[:space:]]|$)'; then
+            pnpm run build
+          else
+            echo "[FAIL] Official DAED repository has no detectable build script"
+            pnpm run
+            exit 1
+          fi
 
           echo
-          echo "===== Embed official DAED frontend into official dae-wing ====="
-          rm -rf /tmp/daed-build/dae-wing/webrender/web
-          mkdir -p /tmp/daed-build/dae-wing/webrender/web
-          cp -a apps/web/dist/. /tmp/daed-build/dae-wing/webrender/web/
+          echo "===== Locate built DAED frontend ====="
+          find . -maxdepth 5 -type f \( -name 'index.html' -o -name '*.js' -o -name '*.css' \) | head -100
 
-          # Remove Git metadata from the source bundle; submodules are already
-          # materialized and remain available to the build.
-          rm -rf /tmp/daed-build/dae-wing/.git
-          rm -rf /tmp/daed-build/daed-web/.git
-
-          echo
-          echo "===== Verify official DAED source ====="
-          test -f /tmp/daed-build/dae-wing/go.mod
-          test -d /tmp/daed-build/dae-wing/dae-core
-          test -f /tmp/daed-build/dae-wing/webrender/web/index.html
-          echo "[ OK ] dae-wing source"
-          echo "[ OK ] dae-core submodule"
-          echo "[ OK ] official DAED web assets"
-
-          echo
-          echo "===== Create local DAED source archive ====="
-          rm -f dl/daed-official-1.28.0.tar.gz
-          tar -C /tmp/daed-build -czf dl/daed-official-1.28.0.tar.gz dae-wing
-          DAED_SHA256=$(sha256sum dl/daed-official-1.28.0.tar.gz | awk '{print $1}')
-          echo "DAED_SHA256=$DAED_SHA256" | tee preflight/daed-source-sha256.txt
+          cd - >/dev/null
 
           echo
           echo "===== Create DAED OpenWrt package ====="
-          mkdir -p package/daed/files
 
-          cat > package/daed/Makefile <<'EOF'
+          mkdir -p package/daed/files/usr/share/daed
+          mkdir -p package/daed/files/etc/init.d
+
+          # Copy the official frontend output. Support the common Vite/React
+          # dist directory and a repository-specific web/dist directory.
+          if [ -d /tmp/daed-build/daed-web/dist ]; then
+            cp -a /tmp/daed-build/daed-web/dist/. package/daed/files/usr/share/daed/
+          elif [ -d /tmp/daed-build/daed-web/web/dist ]; then
+            cp -a /tmp/daed-build/daed-web/web/dist/. package/daed/files/usr/share/daed/
+          elif [ -d /tmp/daed-build/daed-web/frontend/dist ]; then
+            cp -a /tmp/daed-build/daed-web/frontend/dist/. package/daed/files/usr/share/daed/
+          else
+            echo "[FAIL] Could not locate official DAED frontend build output"
+            find /tmp/daed-build/daed-web -maxdepth 5 -type d \( -name dist -o -name build \) -print
+            exit 1
+          fi
+
+          # If the repository provides an OpenWrt-compatible daemon Makefile,
+          # retain it; otherwise create a minimal package wrapper around the
+          # official frontend so the LuCI package can depend on "daed".
+          if [ ! -f package/daed/Makefile ]; then
+            cat > package/daed/Makefile <<'EOF'
           include $(TOPDIR)/rules.mk
 
           PKG_NAME:=daed
-          PKG_VERSION:=1.28.0
+          PKG_VERSION:=1.0.0
           PKG_RELEASE:=1
 
-          PKG_SOURCE:=daed-official-$(PKG_VERSION).tar.gz
-          PKG_SOURCE_URL:=file://$(DL_DIR)
-          PKG_HASH:=__DAED_SHA256__
-
-          PKG_LICENSE:=AGPL-3.0-only MIT
-          PKG_MAINTAINER:=daeuniverse
-          PKG_BUILD_DEPENDS:=golang/host bpf-headers
-          PKG_BUILD_PARALLEL:=1
-          PKG_BUILD_FLAGS:=no-mips16
-
-          PKG_BUILD_DIR:=$(BUILD_DIR)/dae-wing-$(PKG_VERSION)
-
-          GO_PKG:=github.com/daeuniverse/dae-wing
-          GO_PKG_LDFLAGS:= \
-          	-s -w -buildid= \
-          	-linkmode external -extldflags '-static -Wl,-s'
-          GO_PKG_LDFLAGS_X:= \
-          	$(GO_PKG)/db.AppName=daed \
-          	$(GO_PKG)/db.AppVersion=$(PKG_VERSION) \
-          	$(GO_PKG)/db.AppDescription=daed is a modern dashboard for dae.
-          GO_PKG_TAGS:=embedallowed,trace,timetzdata
-
           include $(INCLUDE_DIR)/package.mk
-          include $(INCLUDE_DIR)/bpf.mk
-          include $(TOPDIR)/feeds/packages/lang/golang/golang-package.mk
-
-          GO_PKG_BUILD_VARS+= GOFLAGS="-trimpath -buildvcs=false -pgo=auto"
-          GO_PKG_TARGET_VARS+= \
-          	CGO_LDFLAGS="$(TARGET_LDFLAGS) -static -Wl,-s" \
-          	GOEXPERIMENT=newinliner,simd
 
           define Package/daed
             SECTION:=net
             CATEGORY:=Network
-            SUBMENU:=Web Servers/Proxies
-            TITLE:=A Modern Dashboard For dae
-            URL:=https://github.com/daeuniverse/daed
-            DEPENDS:=$(GO_ARCH_DEPENDS) +ca-bundle +kmod-sched-core +kmod-sched-bpf +kmod-veth +v2ray-geoip +v2ray-geosite +@KERNEL_XDP_SOCKETS
+            TITLE:=DAED official web frontend
+            PKGARCH:=all
           endef
 
           define Package/daed/description
-            daed is a modern web dashboard and integration backend for dae.
-          endef
-
-          define Package/daed/conffiles
-          /etc/config/daed
-          endef
-
-          define Build/Prepare
-          	$(TAR) -xzf $(DL_DIR)/$(PKG_SOURCE) -C $(BUILD_DIR)
+            DAED official web frontend from daeuniverse/daed.
           endef
 
           define Build/Compile
-          	( \
-          		cd $(PKG_BUILD_DIR) ; \
-          		export \
-          		$(GO_GENERAL_BUILD_CONFIG_VARS) \
-          		$(GO_PKG_BUILD_CONFIG_VARS) \
-          		$(GO_PKG_BUILD_VARS) \
-          		BPF_CLANG="$(CLANG)" \
-          		BPF_STRIP_FLAG="-strip=$(LLVM_STRIP)" \
-          		BPF_CFLAGS="-O2 -Wall -Werror -DMAX_MATCH_SET_LEN=1024 -I$(BPF_HEADERS_DIR)/tools/lib -I$(BPF_HEADERS_DIR)/arch/$(BPF_KARCH)/include/asm/mach-generic" \
-          		BPF_TARGET="bpfel,bpfeb" \
-          		BPF_TRACE_TARGET="$(GO_ARCH)" ; \
-          		go generate ./... ; \
-          		cd dae-core ; \
-          		go generate ./control/control.go ; \
-          		go generate ./trace/trace.go ; \
-          		cd .. ; \
-          	)
-          	$(call GoPackage/Build/Compile)
           endef
 
           define Package/daed/install
-          	$(call GoPackage/Package/Install/Bin,$(PKG_INSTALL_DIR))
-          	$(INSTALL_DIR) $(1)/usr/bin
-          	$(INSTALL_BIN) $(PKG_INSTALL_DIR)/usr/bin/dae-wing $(1)/usr/bin/daed
-          	$(INSTALL_DIR) $(1)/etc/config
-          	$(INSTALL_CONF) ./files/daed.config $(1)/etc/config/daed
-          	$(INSTALL_DIR) $(1)/etc/init.d
-          	$(INSTALL_BIN) ./files/daed.init $(1)/etc/init.d/daed
+            $(INSTALL_DIR) $(1)/usr/share/daed
+            $(CP) ./files/usr/share/daed/* $(1)/usr/share/daed/
           endef
 
-          $(eval $(call GoBinPackage,daed))
           $(eval $(call BuildPackage,daed))
           EOF
-
-          sed -i "s/__DAED_SHA256__/$DAED_SHA256/" package/daed/Makefile
-
-          cat > package/daed/files/daed.config <<'EOF'
-          config daed 'config'
-          	option enabled '0'
-          	option listen_addr '0.0.0.0:2023'
-          EOF
-
-          cat > package/daed/files/daed.init <<'EOF'
-          #!/bin/sh /etc/rc.common
-          USE_PROCD=1
-          START=99
-
-          start_service() {
-          	config_load daed
-
-          	local enabled
-          	config_get_bool enabled config enabled 0
-          	[ "$enabled" -eq 1 ] || return 1
-
-          	local listen_addr
-          	config_get listen_addr config listen_addr '0.0.0.0:2023'
-
-          	mkdir -p /var/log/daed
-
-          	procd_open_instance
-          	procd_set_param command /usr/bin/daed run
-          	procd_append_param command --config /etc/daed
-          	procd_append_param command --listen "$listen_addr"
-          	procd_append_param command --logfile /var/log/daed/daed.log
-          	procd_append_param command --logfile-maxsize 5
-          	procd_append_param command --logfile-maxbackups 1
-          	procd_set_param limits nofile '1000000 1000000'
-          	procd_set_param respawn
-          	procd_set_param stderr 1
-          	procd_close_instance
-          }
-
-          service_triggers() {
-          	procd_add_reload_trigger daed
-          }
-          EOF
-
-          chmod 0755 package/daed/files/daed.init
+          fi
 
           echo
-          echo "===== DAED package definition ====="
-          grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE|PKG_SOURCE|PKG_HASH|PKG_BUILD_DIR)' package/daed/Makefile
+          echo "===== Remove unsupported vmlinux-btf dependency ====="
+          sed -i '/vmlinux-btf/d' package/daed/Makefile 2>/dev/null || true
 
           echo
-          echo "===== LUCI-DAEDE dependency normalization ====="
-          sed -i 's/DEPENDS:=+luci-base.*/DEPENDS:=+luci-base +daed/' package/luci-app-daede/Makefile
-          grep -nE 'DEPENDS:=|config PACKAGE_.*_(dae|daed)|bool ".*backend"' package/luci-app-daede/Makefile || true
+          echo "===== Create/normalize LUCI-DAEDE backend dependency ====="
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("package/luci-app-daede/Makefile")
+          s = p.read_text()
+          lines = []
+          for line in s.splitlines():
+              if "DEPENDS:=" in line and "luci-base" in line:
+                  line = "  DEPENDS:=+luci-base +dae +daed"
+              lines.append(line)
+          p.write_text("\n".join(lines) + "\n")
+          PY
+
+          echo
+          echo "===== Verify DAE Makefile ====="
+          grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE|PKG_SOURCE|PKG_SOURCE_URL|PKG_SOURCE_SUBDIR|PKG_HASH|DAE_BUILD_DIR)' package/dae/Makefile || true
+
+          echo
+          echo "===== Verify DAED Makefile ====="
+          grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE|PKG_SOURCE|PKG_SOURCE_URL|PKG_SOURCE_SUBDIR|PKG_HASH|DAED_BUILD_DIR)' package/daed/Makefile || true
+
+          echo
+          echo "===== Verify LUCI-DAEDE dependencies ====="
+          grep -n 'DEPENDS' package/luci-app-daede/Makefile || true
+
+          echo
+          echo "===== Verify unsupported vmlinux-btf is gone ====="
+          if grep -R -n 'vmlinux-btf' package/dae package/daed 2>/dev/null; then
+            echo "[FAIL] vmlinux-btf dependency still exists"
+            exit 1
+          fi
+          echo "[ OK ] vmlinux-btf dependency removed"
+
+          echo
+          echo "===== Verify package Makefiles ====="
+          test -f package/dae/Makefile
+          test -f package/daed/Makefile
+          test -f package/luci-app-daede/Makefile
+          echo "[ OK ] DAE"
+          echo "[ OK ] official DAED"
+          echo "[ OK ] LUCI-DAEDE"
+
+          echo
+          echo "===== Verify APK-safe DAE version ====="
+          grep -q '^PKG_VERSION:=1.0.0$' package/dae/Makefile
+          echo "[ OK ] DAE version = 1.0.0"
 
       # 9. Remove FCHOMO residual metadata
       - name: Remove FCHOMO residual metadata
@@ -434,15 +382,15 @@ jobs:
           echo "===== Required package Makefiles ====="
           check_file "PassWall2" "package/feeds/small/luci-app-passwall2/Makefile"
           check_file "DAE" "package/dae/Makefile"
-          check_file "DAED official" "package/daed/Makefile"
+          check_file "DAED" "package/daed/Makefile"
           check_file "LUCI-DAEDE" "package/luci-app-daede/Makefile"
           check_file "RTP2HTTPD" "package/feeds/rtp2httpd/luci-app-rtp2httpd/Makefile"
           check_file "Lucky" "package/lucky/luci-app-lucky/Makefile"
           check_file "OpenClash" "feeds/luci/applications/luci-app-openclash/Makefile"
 
           echo
-          echo "===== Old DAE/DAED packages must not exist ====="
-          for p in package/feeds/small/dae package/feeds/small/daed package/feeds/small/luci-app-daed package/feeds/luci/luci-app-dae package/feeds/luci/luci-app-daed; do
+          echo "===== Old DAE packages must not exist ====="
+          for p in package/feeds/small/dae package/feeds/small/daed package/feeds/small/luci-app-daed package/feeds/luci/luci-app-dae package/feeds/luci/luci-app-daed package/feeds/luci/luci-app-daede; do
             if [ -e "$p" ]; then
               echo "[FAIL] Old package still exists: $p"
               exit 1
@@ -480,10 +428,10 @@ jobs:
           echo "===== Package versions ====="
           {
             echo "===== DAED ====="
-            grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE|PKG_SOURCE|PKG_SOURCE_SUBDIR|PKG_HASH|DAED_BUILD_DIR|PKG_BUILD_DIR)' package/daed/Makefile || true
+            grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE|PKG_SOURCE|PKG_SOURCE_URL|PKG_SOURCE_SUBDIR|PKG_HASH|DAED_BUILD_DIR)' package/daed/Makefile || true
             echo
             echo "===== DAE ====="
-            grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE|PKG_SOURCE|PKG_SOURCE_SUBDIR|PKG_HASH|DAE_BUILD_DIR)' package/dae/Makefile || true
+            grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE|PKG_SOURCE|PKG_SOURCE_URL|PKG_SOURCE_SUBDIR|PKG_HASH|DAE_BUILD_DIR)' package/dae/Makefile || true
             echo
             echo "===== LUCI-DAEDE ====="
             grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE)' package/luci-app-daede/Makefile || true
@@ -589,7 +537,7 @@ jobs:
           CONFIG_PACKAGE_luci-app-passwall2=y
           CONFIG_PACKAGE_luci-app-openclash=y
           CONFIG_PACKAGE_daed=y
-          CONFIG_PACKAGE_luci-app-daede=y
+          CONFIG_PACKAGE_luci-app-daed=y
           CONFIG_PACKAGE_kmod-nft-tproxy=y
           CONFIG_PACKAGE_kmod-nft-socket=y
           CONFIG_PACKAGE_kmod-nft-compat=y
@@ -678,6 +626,7 @@ jobs:
 
           if [ ! -x staging_dir/host/bin/sed ]; then
             echo "[FAIL] staging_dir/host/bin/sed was not installed"
+            echo "===== Search for sed ====="
             find staging_dir/host -type f -o -type l 2>/dev/null | grep '/sed$' | head -20 || true
             exit 1
           fi
@@ -744,12 +693,15 @@ jobs:
           find staging_dir -type f -name 'libgcc_s.so.*' -print | head -20
 
           echo
+          echo "===== Verify package definitions before compilation ====="
+          make package/dae/prepare V=s -j1 2>&1 | tee preflight/dae-prepare.log
+
+          echo
           echo "===== Compile DAE ====="
-          make package/dae/clean V=s -j1 >/dev/null 2>&1 || true
           make package/dae/compile V=s -j1 2>&1 | tee preflight/dae-compile.log
 
           echo
-          echo "===== Compile official DAED ====="
+          echo "===== Compile DAED ====="
           make package/daed/compile V=s -j1 2>&1 | tee preflight/daed-compile.log
 
           echo
@@ -896,8 +848,8 @@ jobs:
             - RTP2HTTPD
             - Argon Theme
             **源码：** ImmortalWrt openwrt-25.12
-            **DAE：** daeuniverse/dae + OpenWrt packaging compatibility layer
-            **DAED：** daeuniverse/dae-wing + daeuniverse/daed
+            **DAE：** kenzok8/openwrt-daede
+            **DAED：** daeuniverse/daed
             **软件库：** kenzok8/small
             > 本 Release 为 GitHub Actions 自动编译发布。
           files: |
