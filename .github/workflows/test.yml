@@ -387,9 +387,7 @@ jobs:
           check_y CONFIG_PACKAGE_luci-app-daed
           check_y CONFIG_PACKAGE_luci-app-lucky
           check_y CONFIG_PACKAGE_luci-app-rtp2httpd
-          check_y CONFIG_PACKAGE_luci-theme-argon
           check_y CONFIG_PACKAGE_luci-app-argon-config
-
           echo
           echo "===== WireGuard ====="
           check_y CONFIG_PACKAGE_kmod-wireguard
