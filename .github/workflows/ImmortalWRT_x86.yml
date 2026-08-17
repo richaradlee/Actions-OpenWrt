@@ -1,5 +1,7 @@
 name: ImmortalWrt x86
 on:
+  schedule:
+      - cron: "0 10,18 * * *"
   workflow_dispatch:
 
 jobs:
@@ -616,10 +618,6 @@ jobs:
             - UPnP IGD
             - NAT-PMP / PCP
             - Vlmcsd KMS
-            - sing-box
-            - ChinaDNS-NG
-            - HAProxy
-            - socat
 
             ### 源码
 
