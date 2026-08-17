@@ -642,12 +642,6 @@ jobs:
             - WireGuard
             - OpenVPN
             - UPnP IGD
-            - NAT-PMP / PCP
-            - Vlmcsd KMS
-            - sing-box
-            - ChinaDNS-NG
-            - HAProxy
-            - socat
 
             ### 源码
 
