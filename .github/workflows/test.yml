@@ -139,7 +139,7 @@ jobs:
           check_makefile "PassWall2" package/passwall2/luci-app-passwall2/Makefile
           check_makefile "DAED" package/dae/luci-app-daed/Makefile
           check_makefile "Lucky" package/lucky/luci-app-lucky/Makefile
-          check_makefile "Argon" package/argon/luci-theme-argon/Makefile
+          check_makefile "Argon" package/argon/Makefile
           check_makefile "Argon Config" package/argon-config/Makefile
 
       # 9. Generate V3 configuration
