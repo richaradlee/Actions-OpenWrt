@@ -382,6 +382,116 @@ jobs:
           echo "DEFCONFIG COMPLETED"
           echo "============================================================"
 
+
+      # ============================================================
+      # 11. Repair and verify Argon package
+      # ============================================================
+
+      - name: Repair and verify Argon package
+        working-directory: ./openwrt
+
+        shell: bash
+
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "REPAIR AND VERIFY ARGON PACKAGE"
+          echo "============================================================"
+
+          echo
+          echo "===== Argon source ====="
+
+          test -f package/argon/Makefile
+          echo "OK: package/argon/Makefile exists."
+
+          grep -n -E \
+            '^PKG_NAME|^define Package/luci-theme-argon|^LUCI_DEPENDS' \
+            package/argon/Makefile \
+            || true
+
+
+          echo
+          echo "===== Argon Config source ====="
+
+          test -f package/argon-config/Makefile
+          echo "OK: package/argon-config/Makefile exists."
+
+          grep -n -E \
+            '^PKG_NAME|^define Package/luci-app-argon-config|^LUCI_DEPENDS' \
+            package/argon-config/Makefile \
+            || true
+
+
+          echo
+          echo "===== Refresh package index ====="
+
+          ./scripts/feeds install -a
+
+
+          echo
+          echo "===== Search Argon package definition ====="
+
+          grep -R -n \
+            --include='Makefile' \
+            'luci-theme-argon' \
+            package \
+            feeds \
+            2>/dev/null \
+            | head -50 \
+            || true
+
+
+          echo
+          echo "===== Force requested Argon configuration ====="
+
+          sed -i \
+            '/^CONFIG_PACKAGE_luci-theme-argon=/d' \
+            .config
+
+          sed -i \
+            '/^CONFIG_PACKAGE_luci-app-argon-config=/d' \
+            .config
+
+          echo 'CONFIG_PACKAGE_luci-theme-argon=y' >> .config
+          echo 'CONFIG_PACKAGE_luci-app-argon-config=y' >> .config
+
+
+          echo
+          echo "===== Run defconfig again ====="
+
+          make defconfig
+
+
+          echo
+          echo "===== Final Argon configuration ====="
+
+          grep -E \
+            '^CONFIG_PACKAGE_(luci-theme-argon|luci-app-argon-config)=' \
+            .config \
+            || true
+
+
+          echo
+          echo "===== Verify Argon ====="
+
+          if ! grep -q '^CONFIG_PACKAGE_luci-theme-argon=y$' .config; then
+            echo "ERROR: luci-theme-argon was removed by defconfig."
+            exit 1
+          fi
+
+          if ! grep -q '^CONFIG_PACKAGE_luci-app-argon-config=y$' .config; then
+            echo "ERROR: luci-app-argon-config was removed by defconfig."
+            exit 1
+          fi
+
+
+          echo
+          echo "============================================================"
+          echo "ARGON PACKAGE VERIFICATION PASSED"
+          echo "============================================================"
+
+
       # ============================================================
       # 11. Audit defconfig
       # ============================================================
