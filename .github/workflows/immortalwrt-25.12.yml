@@ -272,16 +272,101 @@ jobs:
             2>&1 | tee preflight/feeds-install.log
 
 
-          # --------------------------------------------------------
-          # Known problematic packages
-          # --------------------------------------------------------
+          # ============================================================
+          # Remove known problematic packages
+          # ============================================================
 
           echo
           echo "===== Removing known problematic packages ====="
 
-          rm -rf package/feeds/small/luci-app-fchomo
-          rm -rf package/feeds/small/trojan-plus
+          # ------------------------------------------------------------
+          # luci-app-fchomo
+          #
+          # small 中存在递归依赖问题。
+          # 同时删除 feed 源和 feeds install 后生成的 package 链接/目录。
+          # ------------------------------------------------------------
 
+          echo
+          echo "--- Removing luci-app-fchomo ---"
+
+          rm -rf \
+            feeds/small/luci-app-fchomo \
+            package/feeds/small/luci-app-fchomo
+
+          # 防止 package 被其它 feed 以不同路径安装
+          find package feeds \
+            -type d \
+            -name "luci-app-fchomo" \
+            -prune \
+            -exec rm -rf {} + \
+            2>/dev/null || true
+
+
+          # ------------------------------------------------------------
+          # trojan-plus
+          # ------------------------------------------------------------
+
+          echo
+          echo "--- Removing trojan-plus ---"
+
+          rm -rf \
+            feeds/small/trojan-plus \
+            package/feeds/small/trojan-plus
+
+          find package feeds \
+            -type d \
+            -name "trojan-plus" \
+            -prune \
+            -exec rm -rf {} + \
+            2>/dev/null || true
+
+
+          # ============================================================  
+          # Verify removal
+          # ============================================================
+          echo
+          echo "=================================================="
+          echo " Verifying removed packages"
+          echo "=================================================="
+
+
+          # ------------------------------------------------------------
+          # fchomo
+          #  ------------------------------------------------------------
+
+          echo
+          echo "===== fchomo ====="
+
+          FCHOMO_FOUND=$(find package feeds \
+            -type d \
+            -name "luci-app-fchomo" \
+            2>/dev/null || true)
+
+          if [ -n "$FCHOMO_FOUND" ]; then
+            echo "[FAIL] luci-app-fchomo still exists:"
+            echo "$FCHOMO_FOUND"
+            exit 1
+          else
+            echo "[ OK ] luci-app-fchomo completely removed"
+          fi
+          # ------------------------------------------------------------
+          # trojan-plus
+          # ------------------------------------------------------------
+          echo
+          echo "===== trojan-plus ====="
+
+          TROJAN_FOUND=$(find package feeds \
+            -type d \
+            -name "trojan-plus" \
+            2>/dev/null || true)
+
+          if [ -n "$TROJAN_FOUND" ]; then
+            echo "[FAIL] trojan-plus still exists:"
+            echo "$TROJAN_FOUND"
+            exit 1
+          else
+            echo "[ OK ] trojan-plus completely removed"
+          fi
 
           echo
           echo "===== Feed status ====="
