@@ -12,7 +12,7 @@ jobs:
     permissions:
       contents: read
 
-    name: V3 Final Config Audit ${{ matrix.target }}
+    name: Config Validation ${{ matrix.target }}
 
     strategy:
       fail-fast: false
@@ -22,709 +22,15 @@ jobs:
     steps:
 
       # ============================================================
-      # 1. Checkout
-      # ============================================================
-
-      - name: Checkout
-        uses: actions/checkout@v4
-
-
-      # ============================================================
-      # 2. Maximize build space
-      # ============================================================
-
-      - name: Maximize build space
-        uses: easimon/maximize-build-space@master
-        with:
-          root-reserve-mb: 4096
-          temp-reserve-mb: 1024
-          swap-size-mb: 4096
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
-          remove-docker-images: 'true'
-
-
-      # ============================================================
-      # 3. Install dependencies
-      # ============================================================
-
-      - name: Install build dependencies
-        env:
-          DEBIAN_FRONTEND: noninteractive
-          TZ: Asia/Shanghai
-
-        run: |
-          set -e
-
-          sudo rm -rf \
-            /usr/share/dotnet \
-            /usr/local/lib/android \
-            /opt/ghc \
-            /usr/local/share/powershell \
-            /usr/share/swift \
-            /usr/local/.ghcup \
-            /usr/lib/jvm \
-            /etc/mysql \
-            /etc/php || true
-
-          sudo -E apt-get update
-
-          sudo -E apt-get install -y \
-            ack \
-            asciidoc \
-            autoconf \
-            automake \
-            autopoint \
-            binutils \
-            bison \
-            build-essential \
-            bzip2 \
-            ccache \
-            clang \
-            cmake \
-            cpio \
-            curl \
-            device-tree-compiler \
-            flex \
-            gawk \
-            gettext \
-            git \
-            gperf \
-            help2man \
-            intltool \
-            libelf-dev \
-            libglib2.0-dev \
-            libgmp3-dev \
-            libltdl-dev \
-            libmpc-dev \
-            libmpfr-dev \
-            libncurses5-dev \
-            libncursesw5-dev \
-            libpython3-dev \
-            libreadline-dev \
-            libssl-dev \
-            libtool \
-            llvm \
-            make \
-            ninja-build \
-            patch \
-            pkgconf \
-            python3 \
-            python3-pyelftools \
-            python3-setuptools \
-            rsync \
-            scons \
-            squashfs-tools \
-            subversion \
-            swig \
-            texinfo \
-            uglifyjs \
-            unzip \
-            wget \
-            xmlto \
-            xxd \
-            zlib1g-dev \
-            scdoc
-
-          sudo -E timedatectl set-timezone "Asia/Shanghai"
-
-
-      # ============================================================
-      # 4. Clone ImmortalWrt
-      # ============================================================
-
-      - name: Clone ImmortalWrt source
-        env:
-          REPO_URL: https://github.com/immortalwrt/immortalwrt
-          REPO_BRANCH: openwrt-25.12
-
-        run: |
-          set -e
-
-          git clone \
-            --depth 1 \
-            "$REPO_URL" \
-            -b "$REPO_BRANCH" \
-            openwrt
-
-          cd openwrt
-
-          echo
-          echo "============================================================"
-          echo "IMMORTALWRT SOURCE"
-          echo "============================================================"
-
-          git branch --show-current
-          git log -1 --format='commit: %H'
-          git log -1 --format='subject: %s'
-
-
-      # ============================================================
-      # 5. Configure feeds
-      # ============================================================
-
-      - name: Configure upstream feeds
-        working-directory: ./openwrt
-
-        run: |
-          set -e
-
-          sed -i \
-            '1i src-git rtp2httpd https://github.com/stackia/rtp2httpd.git' \
-            feeds.conf.default
-
-          echo
-          echo "============================================================"
-          echo "FEEDS"
-          echo "============================================================"
-
-          cat feeds.conf.default
-
-
-      # ============================================================
-      # 6. Update official feeds
-      # ============================================================
-
-      - name: Update feeds
-        working-directory: ./openwrt
-
-        run: |
-          set -e
-
-          ./scripts/feeds update -a
-
-
-      # ============================================================
-      # 7. Install normal feed packages
+      # 1. Maximize build space
       #
       # IMPORTANT:
-      # Argon is NOT installed through feeds here.
-      # It will be installed as a local package later.
-      # ============================================================
-
-      - name: Install official feed packages
-        working-directory: ./openwrt
-
-        run: |
-          set -e
-
-          ./scripts/feeds install -a
-
-
-      # ============================================================
-      # 8. Install third-party packages
-      # ============================================================
-
-      - name: Install third-party packages
-        working-directory: ./openwrt
-
-        run: |
-          set -e
-
-          echo "============================================================"
-          echo "INSTALL THIRD-PARTY PACKAGES"
-          echo "============================================================"
-
-
-          # ----------------------------------------------------------
-          # OpenClash
-          # ----------------------------------------------------------
-
-          rm -rf package/feeds/luci/luci-app-openclash
-          rm -rf package/openclash
-
-          git clone \
-            --depth 1 \
-            https://github.com/vernesong/OpenClash.git \
-            package/openclash
-
-
-          # ----------------------------------------------------------
-          # PassWall2
-          # ----------------------------------------------------------
-
-          rm -rf package/feeds/luci/luci-app-passwall2
-          rm -rf package/passwall2
-
-          git clone \
-            --depth 1 \
-            https://github.com/Openwrt-Passwall/openwrt-passwall2.git \
-            package/passwall2
-
-
-          # ----------------------------------------------------------
-          # DAED
-          # ----------------------------------------------------------
-
-          rm -rf package/dae
-          rm -rf package/feeds/base/dae
-
-          git clone \
-            --depth 1 \
-            https://github.com/QiuSimons/luci-app-daed.git \
-            package/dae
-
-
-          # ----------------------------------------------------------
-          # Lucky
-          # ----------------------------------------------------------
-
-          rm -rf package/feeds/lucky/luci-app-lucky
-          rm -rf package/lucky
-
-          git clone \
-            --depth 1 \
-            https://github.com/gdy666/luci-app-lucky.git \
-            package/lucky
-
-
-          # ----------------------------------------------------------
-          # Argon
-          #
-          # IMPORTANT:
-          # Install both repositories into package/argon.
-          # Do NOT depend on feeds install order.
-          # ----------------------------------------------------------
-
-          rm -rf package/argon
-          mkdir -p package/argon
-
-          git clone \
-            --depth 1 \
-            https://github.com/jerrykuku/luci-theme-argon.git \
-            package/argon/luci-theme-argon
-
-          git clone \
-            --depth 1 \
-            https://github.com/jerrykuku/luci-app-argon-config.git \
-            package/argon/luci-app-argon-config
-
-
-          echo
-          echo "============================================================"
-          echo "THIRD-PARTY PACKAGE INSTALLATION COMPLETE"
-          echo "============================================================"
-
-
-      # ============================================================
-      # 9. Install local packages
+      # Must run BEFORE checkout.
       #
-      # IMPORTANT:
-      # Use direct package Makefile discovery instead of feeds.
-      # This prevents Argon dependency warning.
+      # maximize-build-space modifies the runner filesystem/LVM.
+      # Running it after checkout can cause LVM/VG conflicts.
       # ============================================================
 
-      - name: Install local third-party packages
-        working-directory: ./openwrt
-
-        shell: bash
-
-        run: |
-          set -e
-
-          echo "============================================================"
-          echo "LOCAL PACKAGE DISCOVERY"
-          echo "============================================================"
-
-          echo
-          echo "===== Argon Makefiles ====="
-
-          find package/argon \
-            -type f \
-            -name Makefile \
-            -print
-
-
-          echo
-          echo "===== Verify Argon theme ====="
-
-          test -f package/argon/luci-theme-argon/Makefile
-
-          echo "OK: Argon theme Makefile exists."
-
-
-          echo
-          echo "===== Verify Argon config ====="
-
-          test -f package/argon/luci-app-argon-config/Makefile
-
-          echo "OK: Argon config Makefile exists."
-
-
-          echo
-          echo "===== Argon dependency ====="
-
-          grep -R -n \
-            -E 'LUCI_DEPENDS|DEPENDS' \
-            package/argon \
-            --include='Makefile' \
-            || true
-
-
-      # ============================================================
-      # 10. Generate configuration
-      # ============================================================
-
-      - name: Generate V3 configuration
-        working-directory: ./openwrt
-
-        shell: bash
-
-        run: |
-          set -e
-
-          rm -f .config .config.old
-          touch .config
-
-
-          # ==========================================================
-          # Target
-          # ==========================================================
-
-          cat >> .config <<'EOF'
-          CONFIG_TARGET_x86=y
-          CONFIG_TARGET_x86_64=y
-          CONFIG_TARGET_x86_64_Generic=y
-
-          CONFIG_TARGET_KERNEL_PARTSIZE=128
-          CONFIG_TARGET_ROOTFS_PARTSIZE=640
-
-          CONFIG_TARGET_IMAGES_GZIP=y
-          CONFIG_EFI_IMAGES=y
-          EOF
-
-
-          # ==========================================================
-          # IPv6
-          # ==========================================================
-
-          cat >> .config <<'EOF'
-          CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y
-          CONFIG_PACKAGE_ipv6helper=y
-          CONFIG_PACKAGE_odhcp6c=y
-          CONFIG_PACKAGE_odhcpd-ipv6only=y
-          CONFIG_PACKAGE_luci-proto-ipv6=y
-          CONFIG_PACKAGE_ip6tables=y
-          CONFIG_PACKAGE_kmod-nft-nat6=y
-          EOF
-
-
-          # ==========================================================
-          # Bonding
-          # ==========================================================
-
-          cat >> .config <<'EOF'
-          CONFIG_PACKAGE_kmod-bonding=y
-          CONFIG_PACKAGE_proto-bonding=y
-          CONFIG_PACKAGE_luci-proto-bonding=y
-          EOF
-
-
-          # ==========================================================
-          # LuCI
-          # ==========================================================
-
-          cat >> .config <<'EOF'
-          CONFIG_PACKAGE_luci=y
-          CONFIG_PACKAGE_luci-app-diskman=y
-          CONFIG_PACKAGE_luci-app-irqbalance=y
-          CONFIG_PACKAGE_luci-app-package-manager=y
-
-          CONFIG_PACKAGE_luci-app-filebrowser=n
-          CONFIG_PACKAGE_luci-app-taskplan=n
-          EOF
-
-
-          # ==========================================================
-          # SQM
-          # ==========================================================
-
-          cat >> .config <<'EOF'
-          CONFIG_PACKAGE_luci-app-sqm=y
-          CONFIG_PACKAGE_sqm-scripts=y
-          CONFIG_PACKAGE_kmod-sched-cake=y
-          CONFIG_PACKAGE_kmod-ifb=y
-          CONFIG_PACKAGE_tc-full=y
-          EOF
-
-
-          # ==========================================================
-          # IPTV
-          # ==========================================================
-
-          cat >> .config <<'EOF'
-          CONFIG_PACKAGE_luci-app-rtp2httpd=y
-          EOF
-
-
-          # ==========================================================
-          # Proxy
-          # ==========================================================
-
-          cat >> .config <<'EOF'
-          CONFIG_PACKAGE_luci-app-ssr-plus=n
-          CONFIG_PACKAGE_luci-app-passwall=n
-          CONFIG_PACKAGE_luci-app-passwall2=y
-          CONFIG_PACKAGE_luci-app-openclash=y
-          CONFIG_PACKAGE_luci-app-mihomo=n
-          CONFIG_PACKAGE_luci-app-homeproxy=n
-          EOF
-
-
-          # ==========================================================
-          # DAED / eBPF / BTF
-          # ==========================================================
-
-          cat >> .config <<'EOF'
-          CONFIG_DEVEL=y
-
-          CONFIG_KERNEL_DEBUG_INFO=y
-          CONFIG_KERNEL_DEBUG_INFO_REDUCED=n
-          CONFIG_KERNEL_DEBUG_INFO_BTF=y
-
-          CONFIG_KERNEL_CGROUPS=y
-          CONFIG_KERNEL_CGROUP_BPF=y
-          CONFIG_KERNEL_BPF_EVENTS=y
-
-          CONFIG_BPF_TOOLCHAIN_HOST=y
-          CONFIG_KERNEL_XDP_SOCKETS=y
-
-          CONFIG_PACKAGE_kmod-xdp-sockets-diag=y
-
-          CONFIG_PACKAGE_daed=y
-          CONFIG_PACKAGE_luci-app-daed=y
-
-          CONFIG_PACKAGE_kmod-nft-tproxy=y
-          CONFIG_PACKAGE_kmod-nft-socket=y
-          CONFIG_PACKAGE_kmod-nft-compat=y
-          CONFIG_PACKAGE_nftables=y
-          CONFIG_PACKAGE_ip-full=y
-          EOF
-
-
-          # ==========================================================
-          # VPN
-          #
-          # IMPORTANT:
-          # Do NOT check CONFIG_PACKAGE_luci-app-wireguard.
-          # ImmortalWrt 25.12 may provide WireGuard LuCI through
-          # luci-proto-wireguard rather than a package with this name.
-          # ==========================================================
-
-          cat >> .config <<'EOF'
-          CONFIG_PACKAGE_luci-app-softethervpn=n
-
-          CONFIG_PACKAGE_luci-app-openvpn=y
-          CONFIG_PACKAGE_luci-app-openvpn-server=y
-          CONFIG_PACKAGE_openvpn-easy-rsa=y
-
-          CONFIG_PACKAGE_netbird=n
-
-          CONFIG_PACKAGE_wireguard-tools=y
-          CONFIG_PACKAGE_kmod-wireguard=y
-          CONFIG_PACKAGE_luci-proto-wireguard=y
-          EOF
-
-
-          # ==========================================================
-          # Lucky
-          # ==========================================================
-
-          cat >> .config <<'EOF'
-          CONFIG_PACKAGE_luci-app-lucky=y
-          EOF
-
-
-          # ==========================================================
-          # Argon
-          # ==========================================================
-
-          cat >> .config <<'EOF'
-          CONFIG_PACKAGE_luci-theme-argon=y
-          CONFIG_PACKAGE_luci-app-argon-config=y
-          EOF
-
-
-          # ==========================================================
-          # Common
-          # ==========================================================
-
-          cat >> .config <<'EOF'
-          CONFIG_PACKAGE_curl=y
-          CONFIG_PACKAGE_htop=y
-          CONFIG_PACKAGE_nano=y
-          CONFIG_PACKAGE_screen=y
-          CONFIG_PACKAGE_tree=y
-
-          CONFIG_PACKAGE_vim-fuller=n
-          CONFIG_PACKAGE_wget=y
-
-          CONFIG_PACKAGE_acme=y
-          CONFIG_PACKAGE_acme-dnsapi=y
-
-          CONFIG_PACKAGE_haproxy=y
-          CONFIG_PACKAGE_socat=y
-          CONFIG_SOCAT_SSL=y
-
-          CONFIG_SING_BOX_WITH_ECH=y
-          CONFIG_PACKAGE_sing-box=y
-
-          CONFIG_PACKAGE_chinadns-ng=y
-
-          CONFIG_PACKAGE_open-vm-tools=y
-
-          CONFIG_PACKAGE_iperf3=y
-          CONFIG_PACKAGE_iftop=y
-          CONFIG_PACKAGE_tcpdump=y
-          CONFIG_PACKAGE_pv=y
-          CONFIG_PACKAGE_bind-host=y
-          CONFIG_PACKAGE_firewall4=y
-          CONFIG_PACKAGE_dns2socks=y
-          CONFIG_PACKAGE_tcping=y
-          CONFIG_PACKAGE_geoview=y
-          CONFIG_PACKAGE_irqbalance=y
-          EOF
-
-
-          # ----------------------------------------------------------
-          # Explicitly disable optional frontends.
-          #
-          # Only write symbols which actually exist.
-          # Unknown symbols will be audited later.
-          # ----------------------------------------------------------
-
-          cp .config .config.requested
-
-
-      # ============================================================
-      # 11. Locate real WireGuard LuCI configuration
-      # ============================================================
-
-      - name: Audit WireGuard LuCI configuration
-        working-directory: ./openwrt
-
-        shell: bash
-
-        run: |
-          set -e
-
-          echo "============================================================"
-          echo "WIREGUARD L U C I CONFIGURATION AUDIT"
-          echo "============================================================"
-
-          echo
-          echo "===== WireGuard package files ====="
-
-          find package feeds \
-            -type f \
-            \( -iname '*wireguard*' -o -iname '*wg*' \) \
-            2>/dev/null \
-            | head -100 \
-            || true
-
-
-          echo
-          echo "===== WireGuard configuration symbols ====="
-
-          grep -R -n \
-            --include='Makefile' \
-            --include='Config.in' \
-            --include='*.in' \
-            -E 'wireguard|WIREGUARD' \
-            package feeds \
-            2>/dev/null \
-            | head -150 \
-            || true
-
-
-          echo
-          echo "===== Final requested WireGuard symbols ====="
-
-          grep -E \
-            '^CONFIG_PACKAGE_.*wireguard.*=' \
-            .config.requested \
-            || true
-
-
-      # ============================================================
-      # 12. Run defconfig
-      # ============================================================
-
-      - name: Run make defconfig
-        working-directory: ./openwrt
-
-        shell: bash
-
-        run: |
-          set -o pipefail
-
-          make defconfig 2>&1 | tee defconfig.log
-
-
-      # ============================================================
-      # 13. Audit Argon dependency
-      # ============================================================
-
-      - name: Audit Argon dependency
-        working-directory: ./openwrt
-
-        shell: bash
-
-        run: |
-          set -e
-
-          echo "============================================================"
-          echo "ARGON DEPENDENCY AUDIT"
-          echo "============================================================"
-
-          echo
-          echo "===== Argon package files ====="
-
-          find package/argon \
-            -type f \
-            -name Makefile \
-            -print
-
-
-          echo
-          echo "===== Argon package names ====="
-
-          grep -R -n \
-            --include='Makefile' \
-            -E '^PKG_NAME|^define Package/' \
-            package/argon \
-            || true
-
-
-          echo
-          echo "===== Argon dependencies ====="
-
-          grep -R -n \
-            --include='Makefile' \
-            -E 'DEPENDS|LUCI_DEPENDS' \
-            package/argon \
-            || true
-
-
-          echo
-          echo "===== Argon dependency warning search ====="
-
-          if grep -n \
-            -E "argon-config.*dependency|dependency on 'luci-theme-argon'.*does not exist" \
-            defconfig.log 2>/dev/null
-          then
-            echo
-            echo "ERROR: Argon dependency warning still exists."
-            exit 1
-          fi
-
-          echo
-          echo "OK: No Argon dependency warning detected."
-
-
-      # =======================================      
       - name: Maximize build space
         uses: easimon/maximize-build-space@master
         with:
@@ -736,6 +42,14 @@ jobs:
           remove-haskell: 'true'
           remove-codeql: 'true'
           remove-docker-images: 'true'
+
+
+      # ============================================================
+      # 2. Checkout
+      # ============================================================
+
+      - name: Checkout
+        uses: actions/checkout@v4
 
 
       # ============================================================
@@ -870,11 +184,7 @@ jobs:
             '1i src-git rtp2httpd https://github.com/stackia/rtp2httpd.git' \
             feeds.conf.default
 
-          echo
-          echo "============================================================"
-          echo "FEEDS CONFIGURATION"
-          echo "============================================================"
-
+          echo "===== feeds.conf.default ====="
           cat feeds.conf.default
 
 
@@ -901,12 +211,6 @@ jobs:
 
         run: |
           set -e
-
-          echo
-          echo "============================================================"
-          echo "INSTALL THIRD-PARTY PACKAGES"
-          echo "============================================================"
-
 
           # ----------------------------------------------------------
           # OpenClash
@@ -981,14 +285,8 @@ jobs:
             package/argon-config
 
 
-          echo
-          echo "============================================================"
-          echo "THIRD-PARTY PACKAGES INSTALLED"
-          echo "============================================================"
-
-
       # ============================================================
-      # 8. Refresh feed packages
+      # 8. Refresh package index
       # ============================================================
 
       - name: Refresh feed packages
@@ -1001,7 +299,7 @@ jobs:
 
 
       # ============================================================
-      # 9. Generate V3 configuration
+      # 9. Create V3 configuration
       # ============================================================
 
       - name: Generate V3 configuration
@@ -1161,7 +459,6 @@ jobs:
 
           CONFIG_PACKAGE_wireguard-tools=y
           CONFIG_PACKAGE_kmod-wireguard=y
-          CONFIG_PACKAGE_luci-app-wireguard=y
           CONFIG_PACKAGE_luci-proto-wireguard=y
           EOF
 
@@ -1232,42 +529,43 @@ jobs:
 
           cp .config .config.requested
 
-
-          # ==========================================================
-          # Run defconfig
-          # ==========================================================
-
           echo
           echo "============================================================"
-          echo "RUN MAKE DECONFIG"
+          echo "REQUESTED CONFIGURATION"
           echo "============================================================"
 
-          make defconfig
-
-
-          # ==========================================================
-          # Save final configuration
-          # ==========================================================
-
-          cp .config .config.final
-
-
-          echo
-          echo "============================================================"
-          echo "FINAL PACKAGE SELECTION"
-          echo "============================================================"
-
-          grep -E \
-            '^CONFIG_PACKAGE_(luci-app-openclash|luci-app-passwall2|daed|luci-app-daed|luci-app-lucky|luci-app-rtp2httpd|luci-theme-argon|luci-app-argon-config|sing-box|kmod-wireguard|wireguard-tools|luci-app-wireguard|luci-app-sqm|sqm-scripts|kmod-sched-cake|kmod-ifb|tc-full)=' \
-            .config \
-            || true
+          cat .config
 
 
       # ============================================================
-      # 10. Final pre-build configuration check
+      # 10. Run defconfig
       # ============================================================
 
-      - name: Final pre-build configuration check
+      - name: Run make defconfig
+        working-directory: ./openwrt
+
+        shell: bash
+
+        run: |
+          set -o pipefail
+
+          echo "============================================================"
+          echo "RUN MAKE DEFCONFIG"
+          echo "============================================================"
+
+          make defconfig 2>&1 | tee defconfig.log
+
+          echo
+          echo "============================================================"
+          echo "DEFCONFIG COMPLETED"
+          echo "============================================================"
+
+
+      # ============================================================
+      # 11. Compare requested vs final configuration
+      # ============================================================
+
+      - name: Audit defconfig changes
         working-directory: ./openwrt
 
         shell: bash
@@ -1276,7 +574,63 @@ jobs:
           set -e
 
           echo "============================================================"
-          echo "FINAL PRE-BUILD CONFIGURATION CHECK"
+          echo "DEFCONFIG AUDIT"
+          echo "============================================================"
+
+          echo
+          echo "===== Changed configuration ====="
+
+          diff -u \
+            .config.requested \
+            .config \
+            || true
+
+          echo
+          echo "============================================================"
+          echo "IMPORTANT SELECTED CONFIGURATION"
+          echo "============================================================"
+
+          grep -E \
+            '^CONFIG_(TARGET_|DEVEL|KERNEL_DEBUG_INFO|KERNEL_DEBUG_INFO_REDUCED|KERNEL_DEBUG_INFO_BTF|KERNEL_CGROUPS|KERNEL_CGROUP_BPF|KERNEL_BPF_EVENTS|BPF_TOOLCHAIN_HOST|KERNEL_XDP_SOCKETS)' \
+            .config \
+            || true
+
+          echo
+          echo "============================================================"
+          echo "SELECTED THIRD-PARTY PACKAGES"
+          echo "============================================================"
+
+          grep -E \
+            '^CONFIG_PACKAGE_(luci-app-openclash|luci-app-passwall2|daed|luci-app-daed|luci-app-lucky|luci-app-rtp2httpd|luci-theme-argon|luci-app-argon-config|sing-box)=' \
+            .config \
+            || true
+
+
+      # ============================================================
+      # 12. Verify package selections
+      #
+      # NOTE:
+      # luci-app-wireguard is intentionally NOT checked here.
+      # ImmortalWrt 25.12 provides WireGuard through:
+      #   kmod-wireguard
+      #   wireguard-tools
+      #   luci-proto-wireguard
+      #
+      # Also, an unset Kconfig symbol is equivalent to disabled
+      # for our purpose. We therefore do NOT require explicit "=n"
+      # for packages that should not be selected.
+      # ============================================================
+
+      - name: Verify package selections
+        working-directory: ./openwrt
+
+        shell: bash
+
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "VERIFY PACKAGE SELECTIONS"
           echo "============================================================"
 
           FAILED=0
@@ -1295,7 +649,8 @@ jobs:
             fi
           }
 
-          check_n() {
+
+          check_not_y() {
             SYMBOL="$1"
 
             VALUE=$(grep "^${SYMBOL}=" .config 2>/dev/null \
@@ -1303,8 +658,8 @@ jobs:
 
             echo "$SYMBOL = ${VALUE:-<NOT SET>}"
 
-            if [ "$VALUE" != "n" ]; then
-              echo "ERROR: $SYMBOL is not explicitly disabled."
+            if [ "$VALUE" = "y" ]; then
+              echo "ERROR: $SYMBOL is unexpectedly enabled."
               FAILED=1
             fi
           }
@@ -1329,7 +684,6 @@ jobs:
 
           check_y CONFIG_PACKAGE_kmod-wireguard
           check_y CONFIG_PACKAGE_wireguard-tools
-          check_y CONFIG_PACKAGE_luci-app-wireguard
           check_y CONFIG_PACKAGE_luci-proto-wireguard
 
 
@@ -1346,11 +700,11 @@ jobs:
           echo
           echo "===== Disabled proxy frontends ====="
 
-          check_n CONFIG_PACKAGE_luci-app-ssr-plus
-          check_n CONFIG_PACKAGE_luci-app-passwall
-          check_n CONFIG_PACKAGE_luci-app-mihomo
-          check_n CONFIG_PACKAGE_luci-app-homeproxy
-          check_n CONFIG_PACKAGE_netbird
+          check_not_y CONFIG_PACKAGE_luci-app-ssr-plus
+          check_not_y CONFIG_PACKAGE_luci-app-passwall
+          check_not_y CONFIG_PACKAGE_luci-app-mihomo
+          check_not_y CONFIG_PACKAGE_luci-app-homeproxy
+          check_not_y CONFIG_PACKAGE_netbird
 
 
           echo
@@ -1359,29 +713,358 @@ jobs:
           if [ "$FAILED" -ne 0 ]; then
             echo
             echo "============================================================"
-            echo "PRE-BUILD CONFIGURATION CHECK FAILED"
+            echo "PACKAGE SELECTION VERIFICATION FAILED"
             echo "============================================================"
             exit 1
           fi
 
           echo
           echo "============================================================"
-          echo "PRE-BUILD CONFIGURATION CHECK PASSED"
+          echo "PACKAGE SELECTION VERIFICATION PASSED"
           echo "============================================================"
 
 
       # ============================================================
-      # 11. Download sources
+      # 13. DAED / BTF configuration audit
       # ============================================================
 
-      - name: Download sources
+      - name: Audit DAED BTF configuration
         working-directory: ./openwrt
 
         shell: bash
 
         run: |
-          set -o pipefail
+          set -e
+
+          echo "============================================================"
+          echo "DAED / BTF CONFIGURATION AUDIT"
+          echo "============================================================"
+
+          echo
+          echo "===== Requested DAED configuration ====="
+
+          grep -E \
+            '^CONFIG_(DEVEL|KERNEL_DEBUG_INFO|KERNEL_DEBUG_INFO_REDUCED|KERNEL_DEBUG_INFO_BTF|KERNEL_CGROUPS|KERNEL_CGROUP_BPF|KERNEL_BPF_EVENTS|BPF_TOOLCHAIN_HOST|KERNEL_XDP_SOCKETS|PACKAGE_kmod-xdp-sockets-diag|PACKAGE_daed|PACKAGE_luci-app-daed)=' \
+            .config.requested \
+            || true
+
+          echo
+          echo "===== Final DAED configuration ====="
+
+          grep -E \
+            '^CONFIG_(DEVEL|KERNEL_DEBUG_INFO|KERNEL_DEBUG_INFO_REDUCED|KERNEL_DEBUG_INFO_BTF|KERNEL_CGROUPS|KERNEL_CGROUP_BPF|KERNEL_BPF_EVENTS|BPF_TOOLCHAIN_HOST|KERNEL_XDP_SOCKETS|PACKAGE_kmod-xdp-sockets-diag|PACKAGE_daed|PACKAGE_luci-app-daed)=' \
+            .config \
+            || true
+
+          echo
+          echo "===== Search kernel configuration symbols ====="
+
+          for symbol in \
+            CONFIG_DEBUG_INFO \
+            CONFIG_DEBUG_INFO_BTF \
+            CONFIG_DEBUG_INFO_BTF_MODULES \
+            CONFIG_BPF \
+            CONFIG_BPF_SYSCALL \
+            CONFIG_CGROUPS \
+            CONFIG_CGROUP_BPF \
+            CONFIG_BPF_EVENTS \
+            CONFIG_XDP_SOCKETS
+
+          do
+            echo
+            echo ">>> $symbol"
+
+            grep -R \
+              -n \
+              --include='Config.in*' \
+              --include='*.in' \
+              "$symbol" \
+              target \
+              package \
+              2>/dev/null \
+              | head -20 \
+              || true
+          done
 
           echo
           echo "============================================================"
-          echo "DOWNLOAD SOURCE 
+
+
+      # ============================================================
+      # 14. Check defconfig warnings
+      # ============================================================
+
+      - name: Check defconfig warnings
+        working-directory: ./openwrt
+
+        shell: bash
+
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "CHECK DEFCONFIG WARNINGS"
+          echo "============================================================"
+
+          if [ ! -f defconfig.log ]; then
+            echo "ERROR: defconfig.log not found."
+            exit 1
+          fi
+
+          echo
+          echo "===== Warning / dependency messages ====="
+
+          grep -n -E \
+            'WARNING:|warning:|depends on|dependency|not found|unknown symbol|invalid' \
+            defconfig.log \
+            || true
+
+          echo
+          echo "===== OpenClash override check ====="
+
+          if grep -q \
+            "Not overriding core package 'luci-app-openclash'" \
+            defconfig.log; then
+
+            echo "ERROR: OpenClash override warning detected."
+            exit 1
+
+          else
+
+            echo "OK: No OpenClash override warning."
+
+          fi
+
+          echo
+          echo "===== Argon dependency check ====="
+
+          if grep -q \
+            "package/argon-config/Makefile.*depends on 'luci-theme-argon', which does not exist" \
+            defconfig.log; then
+
+            echo "ERROR: Argon dependency warning detected."
+            exit 1
+
+          else
+
+            echo "OK: No Argon dependency warning."
+
+          fi
+
+          echo
+          echo "===== Complete defconfig log ====="
+
+          cat defconfig.log
+
+          echo
+          echo "============================================================"
+
+
+      # ============================================================
+      # 15. Package dependency check
+      # ============================================================
+
+      - name: Package dependency check
+        working-directory: ./openwrt
+
+        shell: bash
+
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "PACKAGE DEPENDENCY CHECK"
+          echo "============================================================"
+
+          echo
+          echo "===== Third-party package dependencies ====="
+
+          for dir in \
+            package/openclash \
+            package/passwall2 \
+            package/dae \
+            package/lucky \
+            package/argon \
+            package/argon-config \
+            feeds/rtp2httpd
+
+          do
+            if [ -d "$dir" ]; then
+
+              echo
+              echo "############################################################"
+              echo "# $dir"
+              echo "############################################################"
+
+              grep -R -n \
+                --include='Makefile' \
+                -E 'DEPENDS[+:]?=|LUCI_DEPENDS[+:]?=' \
+                "$dir" \
+                2>/dev/null \
+                || true
+
+            fi
+          done
+
+          echo
+          echo "============================================================"
+
+
+      # ============================================================
+      # 16. Search known dependency problems
+      # ============================================================
+
+      - name: Search known dependency problems
+        working-directory: ./openwrt
+
+        shell: bash
+
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "KNOWN DEPENDENCY SEARCH"
+          echo "============================================================"
+
+          check_dependency() {
+            NAME="$1"
+
+            echo
+            echo "############################################################"
+            echo "# SEARCH: $NAME"
+            echo "############################################################"
+
+            grep -R -n \
+              --include='Makefile' \
+              --include='Config.in' \
+              --include='*.in' \
+              "$NAME" \
+              package \
+              feeds \
+              target \
+              2>/dev/null \
+              | head -50 \
+              || true
+          }
+
+          check_dependency "vmlinux-btf"
+          check_dependency "BPF_TOOLCHAIN_HOST"
+          check_dependency "DEBUG_INFO_BTF"
+          check_dependency "kmod-nft-tproxy"
+          check_dependency "kmod-nft-socket"
+          check_dependency "kmod-xdp-sockets-diag"
+          check_dependency "sing-box"
+          check_dependency "chinadns-ng"
+          check_dependency "proto-bonding"
+
+          echo
+          echo "============================================================"
+
+
+      # ============================================================
+      # 17. Save final config artifact
+      # ============================================================
+
+      - name: Upload config diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+
+        with:
+          name: immortalwrt-v3-test05-config-${{ github.run_number }}
+          path: |
+            ./openwrt/.config
+            ./openwrt/.config.requested
+            ./openwrt/defconfig.log
+          if-no-files-found: warn
+          retention-days: 14
+
+
+      # ============================================================
+      # 18. Final summary
+      # ============================================================
+
+      - name: Final summary
+        working-directory: ./openwrt
+
+        run: |
+          set -e
+
+          echo
+          echo "################################################################"
+          echo "# IMMORTALWRT V3 TEST 05 FINAL SUMMARY"
+          echo "################################################################"
+
+          echo
+          echo "===== ImmortalWrt ====="
+
+          git log -1 --format='commit: %H'
+          git log -1 --format='subject: %s'
+
+          echo
+          echo "===== Target ====="
+
+          grep -E \
+            '^CONFIG_TARGET_(x86|x86_64|x86_64_Generic)=' \
+            .config \
+            || true
+
+          echo
+          echo "===== Image configuration ====="
+
+          grep -E \
+            '^CONFIG_(TARGET_KERNEL_PARTSIZE|TARGET_ROOTFS_PARTSIZE|TARGET_IMAGES_GZIP|EFI_IMAGES)=' \
+            .config \
+            || true
+
+          echo
+          echo "===== Proxy ====="
+
+          grep -E \
+            '^CONFIG_PACKAGE_(luci-app-openclash|luci-app-passwall2|daed|luci-app-daed|sing-box)=' \
+            .config \
+            || true
+
+          echo
+          echo "===== VPN ====="
+
+          grep -E \
+            '^CONFIG_PACKAGE_(kmod-wireguard|wireguard-tools|luci-proto-wireguard|luci-app-openvpn|luci-app-openvpn-server|openvpn-easy-rsa)=' \
+            .config \
+            || true
+
+          echo
+          echo "===== SQM ====="
+
+          grep -E \
+            '^CONFIG_PACKAGE_(luci-app-sqm|sqm-scripts|kmod-sched-cake|kmod-ifb|tc-full)=' \
+            .config \
+            || true
+
+          echo
+          echo "===== DAED / BTF ====="
+
+          grep -E \
+            '^CONFIG_(KERNEL_DEBUG_INFO|KERNEL_DEBUG_INFO_REDUCED|KERNEL_DEBUG_INFO_BTF|KERNEL_CGROUPS|KERNEL_CGROUP_BPF|KERNEL_BPF_EVENTS|BPF_TOOLCHAIN_HOST|KERNEL_XDP_SOCKETS)=' \
+            .config \
+            || true
+
+          echo
+          echo "===== Argon ====="
+
+          grep -E \
+            '^CONFIG_PACKAGE_(luci-theme-argon|luci-app-argon-config)=' \
+            .config \
+            || true
+
+          echo
+          echo "===== Other ====="
+
+          grep -E \
+            '^CONFIG_PACKAGE_(luci-app-lucky|luci-app-rtp2httpd|luci-app-diskman|luci-app-irqbalance|luci-app-package-manager|open-vm-tools|iperf3|tcpdump|haproxy|socat|acme|chinadns-ng)=' \
+            .config \
+            || true
+
+          echo
+          echo "################################################################"
+          echo "# TEST 05 COMPLETED"
+          echo "################################################################"
