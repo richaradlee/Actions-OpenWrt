@@ -1,7 +1,7 @@
 name: ImmortalWrt x86
 on:
   schedule:
-      - cron: "0 10,18 * * *"
+    - cron: "0 10,18 * * *"
   workflow_dispatch:
 
 jobs:
@@ -95,8 +95,8 @@ jobs:
           git clone --depth 1 https://github.com/gdy666/luci-app-lucky.git package/lucky
 
           rm -rf package/feeds/luci/luci-theme-argon package/feeds/luci/luci-app-argon-config package/argon package/argon-config
-          git clone --depth 1 --branch master https://github.com/jerrykuku/luci-theme-argon.git package/argon
-          git clone --depth 1 --branch master https://github.com/jerrykuku/luci-app-argon-config.git package/argon-config
+          git clone --depth 1 --branch master https://github.com/jerrykuku/luci-theme-argon.git package/feeds/luci/luci-theme-argon
+          git clone --depth 1 --branch master https://github.com/jerrykuku/luci-app-argon-config.git package/feeds/luci/luci-app-argon-config
 
       # 8. Verify third-party sources
       - name: Verify third-party package sources
@@ -120,13 +120,13 @@ jobs:
           check_makefile "PassWall2" package/passwall2/luci-app-passwall2/Makefile
           check_makefile "DAED" package/dae/luci-app-daed/Makefile
           check_makefile "Lucky" package/lucky/luci-app-lucky/Makefile
-          check_makefile "Argon" package/argon/Makefile
-          check_makefile "Argon Config" package/argon-config/Makefile
+          check_makefile "Argon" package/feeds/luci/luci-theme-argon/Makefile
+          check_makefile "Argon Config" package/feeds/luci/luci-app-argon-config/Makefile
 
-          ARGON_REMOTE="$(git -C package/argon remote get-url origin)"
-          ARGON_BRANCH="$(git -C package/argon branch --show-current)"
-          ARGON_COMMIT="$(git -C package/argon rev-parse HEAD)"
-          ARGON_VERSION="$(git -C package/argon describe --tags --always 2>/dev/null || echo unknown)"
+          ARGON_REMOTE="$(git -C package/feeds/luci/luci-theme-argon remote get-url origin)"
+          ARGON_BRANCH="$(git -C package/feeds/luci/luci-theme-argon branch --show-current)"
+          ARGON_COMMIT="$(git -C package/feeds/luci/luci-theme-argon rev-parse HEAD)"
+          ARGON_VERSION="$(git -C package/feeds/luci/luci-theme-argon describe --tags --always 2>/dev/null || echo unknown)"
 
           echo "============================================================"
           echo "ARGON SOURCE"
@@ -138,6 +138,7 @@ jobs:
 
           test "$ARGON_REMOTE" = "https://github.com/jerrykuku/luci-theme-argon.git"
           test "$ARGON_BRANCH" = "master"
+          grep -q "^PKG_VERSION:=" package/feeds/luci/luci-theme-argon/Makefile
 
           echo "ARGON_COMMIT=$ARGON_COMMIT" >> "$GITHUB_ENV"
           echo "ARGON_VERSION=$ARGON_VERSION" >> "$GITHUB_ENV"
@@ -314,7 +315,7 @@ jobs:
           set -o pipefail
           make defconfig 2>&1 | tee defconfig.log
 
-      # 17. Verify configuration
+      # 15. Verify configuration
       - name: Verify configuration
         working-directory: ./openwrt
         run: |
@@ -386,12 +387,12 @@ jobs:
           echo
           echo "===== Argon ====="
 
-          test -f package/argon/Makefile || {
+          test -f package/feeds/luci/luci-theme-argon/Makefile || {
             echo "ERROR: Argon theme Makefile not found."
             FAILED=1
           }
 
-          test -f package/argon-config/Makefile || {
+          test -f package/feeds/luci/luci-app-argon-config/Makefile || {
             echo "ERROR: Argon config Makefile not found."
             FAILED=1
           }
@@ -401,7 +402,7 @@ jobs:
             FAILED=1
           }
 
-          grep -R -n "luci-theme-argon" package/argon-config/Makefile >/dev/null || {
+          grep -R -n "luci-theme-argon" package/feeds/luci/luci-app-argon-config/Makefile >/dev/null || {
             echo "ERROR: Argon config dependency not found."
             FAILED=1
           }
@@ -422,7 +423,7 @@ jobs:
             FAILED=1
           fi
 
-          if grep -q "package/argon-config/Makefile.*depends on 'luci-theme-argon', which does not exist" defconfig.log; then
+          if grep -q "package/feeds/luci/luci-app-argon-config/Makefile.*depends on 'luci-theme-argon', which does not exist" defconfig.log; then
             echo "ERROR: Argon dependency warning."
             FAILED=1
           fi
@@ -440,7 +441,7 @@ jobs:
           echo "FINAL CONFIGURATION VERIFICATION PASSED"
           echo "============================================================"
 
-      # 18. Audit important components
+      # 16. Audit important components
       - name: Audit important components
         working-directory: ./openwrt
         run: |
@@ -485,7 +486,7 @@ jobs:
           echo "===== Dependency warnings ====="
           grep -n -E 'WARNING:|depends on|dependency|not found|unknown symbol|invalid' defconfig.log || true
 
-      # 19. Build firmware
+      # 17. Build firmware
       - name: Build ImmortalWrt
         working-directory: ./openwrt
         env:
@@ -517,7 +518,7 @@ jobs:
           echo "============================================================"
           ccache -s || true
 
-      # 23. Save download cache
+      # 18. Save download cache
       - name: Save download cache
         if: success() && steps.cache-dl.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
@@ -525,7 +526,7 @@ jobs:
           path: ./openwrt/dl
           key: ${{ runner.os }}-immortalwrt-dl-v4-${{ env.SOURCE_COMMIT }}
 
-      # 24. Save ccache
+      # 19. Save ccache
       - name: Save ccache
         if: success() && steps.cache-ccache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
@@ -533,7 +534,7 @@ jobs:
           path: ./openwrt/.ccache
           key: ${{ runner.os }}-immortalwrt-ccache-v4
 
-      # 25. Save toolchain cache
+      # 20. Save toolchain cache
       - name: Save toolchain cache
         if: success() && steps.cache-staging.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
@@ -543,7 +544,7 @@ jobs:
             ./openwrt/staging_dir/toolchain-*
           key: ${{ runner.os }}-immortalwrt-staging-v4-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config') }}
 
-      # 26. Collect EFI image and checksums
+      # 21. Collect EFI image and checksums
       - name: Collect release files
         working-directory: ./openwrt
         run: |
@@ -589,7 +590,7 @@ jobs:
           echo "============================================================"
           ls -lh release/
 
-      # 27. Upload firmware and diagnostics
+      # 22. Upload firmware and diagnostics
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
         with:
@@ -615,7 +616,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      # 28. Create GitHub Release
+      # 23. Create GitHub Release
       - name: Create GitHub Release
         if: success()
         uses: softprops/action-gh-release@v2
@@ -641,7 +642,6 @@ jobs:
             - SQM / CAKE
             - WireGuard
             - OpenVPN
-            - UPnP IGD
 
             ### 源码
 
@@ -661,7 +661,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 29. Delete old workflow runs and final summary
+      # 24. Delete old workflow runs and final summary
       - name: Delete old workflow runs
         if: always()
         uses: Mattraks/delete-workflow-runs@v2
