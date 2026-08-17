@@ -253,6 +253,40 @@ jobs:
 
           echo "[ OK ] DAED frontend: $DAED_WEB_DIST"
 
+          echo
+          echo "===== Install OpenWrt DAED package recipe ====="
+
+          # The DAED application source is always fetched from the official
+          # daeuniverse/daed repository. QiuSimons/luci-app-daed is used only
+          # as the OpenWrt packaging recipe (Makefile + init/config files);
+          # it is NOT used as the DAED application source.
+          rm -rf package/daed
+          git clone --depth 1 https://github.com/QiuSimons/luci-app-daed.git /tmp/luci-app-daed-packaging
+
+          if [ ! -f /tmp/luci-app-daed-packaging/daed/Makefile ]; then
+            echo "[FAIL] OpenWrt DAED packaging Makefile not found"
+            exit 1
+          fi
+
+          cp -a /tmp/luci-app-daed-packaging/daed package/daed
+
+          # Keep the package recipe pointed at the official DAED repository.
+          # Do not let a packaging fork become the runtime source.
+          sed -i \
+            's#^PKG_SOURCE_URL:=.*#PKG_SOURCE_URL:=https://github.com/daeuniverse/daed.git#' \
+            package/daed/Makefile
+
+          echo "===== Verify DAED package source ====="
+          grep -E '^(PKG_NAME|PKG_VERSION|PKG_RELEASE|PKG_SOURCE_URL|PKG_SOURCE_VERSION|PKG_MIRROR_HASH|PKG_BUILD_DIR)' package/daed/Makefile || true
+
+          if ! grep -q '^PKG_SOURCE_URL:=https://github.com/daeuniverse/daed.git$' package/daed/Makefile; then
+            echo "[FAIL] DAED package is not using official daeuniverse/daed source"
+            exit 1
+          fi
+
+          echo "[ OK ] DAED OpenWrt package recipe installed"
+          echo "[ OK ] DAED source = https://github.com/daeuniverse/daed.git"
+
       # 9. Remove FCHOMO residual metadata
       - name: Remove FCHOMO residual metadata
         working-directory: ./openwrt
@@ -297,6 +331,12 @@ jobs:
           check_file "PassWall2" "package/feeds/small/luci-app-passwall2/Makefile"
           check_file "DAE" "package/dae/Makefile"
           check_file "DAED" "package/daed/Makefile"
+
+          if ! grep -q '^PKG_SOURCE_URL:=https://github.com/daeuniverse/daed.git$' package/daed/Makefile; then
+            echo "[FAIL] DAED package Makefile is not using official daeuniverse/daed source"
+            exit 1
+          fi
+          echo "[ OK ] DAED package source = official daeuniverse/daed"
           check_file "LUCI-DAEDE" "package/luci-app-daede/Makefile"
           check_file "RTP2HTTPD" "package/feeds/rtp2httpd/luci-app-rtp2httpd/Makefile"
           check_file "Lucky" "package/lucky/luci-app-lucky/Makefile"
