@@ -1,10 +1,10 @@
-name: ImmortalWrt V3 Test 05
+name: ImmortalWrt V3 Test 06
 
 on:
   workflow_dispatch:
 
 jobs:
-  validate:
+  build:
     runs-on: ubuntu-latest
 
     if: github.event.repository.owner.id == github.event.sender.id
@@ -12,7 +12,7 @@ jobs:
     permissions:
       contents: read
 
-    name: Config Validation ${{ matrix.target }}
+    name: ImmortalWrt Build ${{ matrix.target }}
 
     strategy:
       fail-fast: false
@@ -26,9 +26,6 @@ jobs:
       #
       # IMPORTANT:
       # Must run BEFORE checkout.
-      #
-      # maximize-build-space modifies the runner filesystem/LVM.
-      # Running it after checkout can cause LVM/VG conflicts.
       # ============================================================
 
       - name: Maximize build space
@@ -53,7 +50,38 @@ jobs:
 
 
       # ============================================================
-      # 3. Install build dependencies
+      # 3. Show runner information
+      # ============================================================
+
+      - name: Show runner information
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "RUNNER INFORMATION"
+          echo "============================================================"
+
+          echo
+          echo "===== CPU ====="
+          nproc
+          lscpu | grep -E \
+            'Model name|CPU\(s\)|Thread|Core|Socket' \
+            || true
+
+          echo
+          echo "===== MEMORY ====="
+          free -h
+
+          echo
+          echo "===== DISK ====="
+          df -h
+
+          echo
+          echo "============================================================"
+
+
+      # ============================================================
+      # 4. Install build dependencies
       # ============================================================
 
       - name: Install build dependencies
@@ -138,7 +166,35 @@ jobs:
 
 
       # ============================================================
-      # 4. Clone ImmortalWrt
+      # 5. Configure ccache
+      # ============================================================
+
+      - name: Configure ccache
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "CONFIGURE CCACHE"
+          echo "============================================================"
+
+          mkdir -p "$HOME/.ccache"
+
+          ccache --set-config=max_size=5G
+          ccache --set-config=compression=true
+
+          ccache --zero-stats
+
+          echo
+          echo "===== ccache configuration ====="
+
+          ccache --show-config
+
+          echo
+          echo "============================================================"
+
+
+      # ============================================================
+      # 6. Clone ImmortalWrt
       # ============================================================
 
       - name: Clone ImmortalWrt source
@@ -171,7 +227,7 @@ jobs:
 
 
       # ============================================================
-      # 5. Configure feeds
+      # 7. Configure feeds
       # ============================================================
 
       - name: Configure upstream feeds
@@ -189,7 +245,7 @@ jobs:
 
 
       # ============================================================
-      # 6. Update feeds
+      # 8. Update feeds
       # ============================================================
 
       - name: Update feeds
@@ -203,7 +259,7 @@ jobs:
 
 
       # ============================================================
-      # 7. Install third-party packages
+      # 9. Install third-party packages
       # ============================================================
 
       - name: Install third-party packages
@@ -286,7 +342,7 @@ jobs:
 
 
       # ============================================================
-      # 8. Refresh package index
+      # 10. Refresh feed packages
       # ============================================================
 
       - name: Refresh feed packages
@@ -299,7 +355,7 @@ jobs:
 
 
       # ============================================================
-      # 9. Create V3 configuration
+      # 11. Generate V3 configuration
       # ============================================================
 
       - name: Generate V3 configuration
@@ -520,6 +576,8 @@ jobs:
           CONFIG_PACKAGE_tcping=y
           CONFIG_PACKAGE_geoview=y
           CONFIG_PACKAGE_irqbalance=y
+
+          CONFIG_CCACHE=y
           EOF
 
 
@@ -538,7 +596,7 @@ jobs:
 
 
       # ============================================================
-      # 10. Run defconfig
+      # 12. Run defconfig
       # ============================================================
 
       - name: Run make defconfig
@@ -562,10 +620,10 @@ jobs:
 
 
       # ============================================================
-      # 11. Compare requested vs final configuration
+      # 13. Verify final configuration
       # ============================================================
 
-      - name: Audit defconfig changes
+      - name: Verify final configuration
         working-directory: ./openwrt
 
         shell: bash
@@ -574,63 +632,7 @@ jobs:
           set -e
 
           echo "============================================================"
-          echo "DEFCONFIG AUDIT"
-          echo "============================================================"
-
-          echo
-          echo "===== Changed configuration ====="
-
-          diff -u \
-            .config.requested \
-            .config \
-            || true
-
-          echo
-          echo "============================================================"
-          echo "IMPORTANT SELECTED CONFIGURATION"
-          echo "============================================================"
-
-          grep -E \
-            '^CONFIG_(TARGET_|DEVEL|KERNEL_DEBUG_INFO|KERNEL_DEBUG_INFO_REDUCED|KERNEL_DEBUG_INFO_BTF|KERNEL_CGROUPS|KERNEL_CGROUP_BPF|KERNEL_BPF_EVENTS|BPF_TOOLCHAIN_HOST|KERNEL_XDP_SOCKETS)' \
-            .config \
-            || true
-
-          echo
-          echo "============================================================"
-          echo "SELECTED THIRD-PARTY PACKAGES"
-          echo "============================================================"
-
-          grep -E \
-            '^CONFIG_PACKAGE_(luci-app-openclash|luci-app-passwall2|daed|luci-app-daed|luci-app-lucky|luci-app-rtp2httpd|luci-theme-argon|luci-app-argon-config|sing-box)=' \
-            .config \
-            || true
-
-
-      # ============================================================
-      # 12. Verify package selections
-      #
-      # NOTE:
-      # luci-app-wireguard is intentionally NOT checked here.
-      # ImmortalWrt 25.12 provides WireGuard through:
-      #   kmod-wireguard
-      #   wireguard-tools
-      #   luci-proto-wireguard
-      #
-      # Also, an unset Kconfig symbol is equivalent to disabled
-      # for our purpose. We therefore do NOT require explicit "=n"
-      # for packages that should not be selected.
-      # ============================================================
-
-      - name: Verify package selections
-        working-directory: ./openwrt
-
-        shell: bash
-
-        run: |
-          set -e
-
-          echo "============================================================"
-          echo "VERIFY PACKAGE SELECTIONS"
+          echo "VERIFY FINAL CONFIGURATION"
           echo "============================================================"
 
           FAILED=0
@@ -649,7 +651,6 @@ jobs:
             fi
           }
 
-
           check_not_y() {
             SYMBOL="$1"
 
@@ -663,6 +664,15 @@ jobs:
               FAILED=1
             fi
           }
+
+
+          echo
+          echo "===== Target ====="
+
+          check_y CONFIG_TARGET_x86
+          check_y CONFIG_TARGET_x86_64
+          check_y CONFIG_TARGET_x86_64_Generic
+          check_y CONFIG_EFI_IMAGES
 
 
           echo
@@ -688,6 +698,14 @@ jobs:
 
 
           echo
+          echo "===== OpenVPN ====="
+
+          check_y CONFIG_PACKAGE_luci-app-openvpn
+          check_y CONFIG_PACKAGE_luci-app-openvpn-server
+          check_y CONFIG_PACKAGE_openvpn-easy-rsa
+
+
+          echo
           echo "===== SQM ====="
 
           check_y CONFIG_PACKAGE_luci-app-sqm
@@ -695,6 +713,33 @@ jobs:
           check_y CONFIG_PACKAGE_kmod-sched-cake
           check_y CONFIG_PACKAGE_kmod-ifb
           check_y CONFIG_PACKAGE_tc-full
+
+
+          echo
+          echo "===== DAED / BTF ====="
+
+          check_y CONFIG_DEVEL
+          check_y CONFIG_KERNEL_DEBUG_INFO
+          check_y CONFIG_KERNEL_DEBUG_INFO_BTF
+          check_y CONFIG_KERNEL_CGROUPS
+          check_y CONFIG_KERNEL_CGROUP_BPF
+          check_y CONFIG_KERNEL_BPF_EVENTS
+          check_y CONFIG_BPF_TOOLCHAIN_HOST
+          check_y CONFIG_KERNEL_XDP_SOCKETS
+          check_y CONFIG_PACKAGE_kmod-xdp-sockets-diag
+
+
+          echo
+          echo "===== Other ====="
+
+          check_y CONFIG_PACKAGE_sing-box
+          check_y CONFIG_PACKAGE_chinadns-ng
+          check_y CONFIG_PACKAGE_open-vm-tools
+          check_y CONFIG_PACKAGE_iperf3
+          check_y CONFIG_PACKAGE_tcpdump
+          check_y CONFIG_PACKAGE_haproxy
+          check_y CONFIG_PACKAGE_socat
+          check_y CONFIG_PACKAGE_acme
 
 
           echo
@@ -713,22 +758,22 @@ jobs:
           if [ "$FAILED" -ne 0 ]; then
             echo
             echo "============================================================"
-            echo "PACKAGE SELECTION VERIFICATION FAILED"
+            echo "FINAL CONFIGURATION VERIFICATION FAILED"
             echo "============================================================"
             exit 1
           fi
 
           echo
           echo "============================================================"
-          echo "PACKAGE SELECTION VERIFICATION PASSED"
+          echo "FINAL CONFIGURATION VERIFICATION PASSED"
           echo "============================================================"
 
 
       # ============================================================
-      # 13. DAED / BTF configuration audit
+      # 14. Check important warnings before compilation
       # ============================================================
 
-      - name: Audit DAED BTF configuration
+      - name: Check pre-build warnings
         working-directory: ./openwrt
 
         shell: bash
@@ -737,90 +782,11 @@ jobs:
           set -e
 
           echo "============================================================"
-          echo "DAED / BTF CONFIGURATION AUDIT"
+          echo "CHECK PRE-BUILD WARNINGS"
           echo "============================================================"
 
           echo
-          echo "===== Requested DAED configuration ====="
-
-          grep -E \
-            '^CONFIG_(DEVEL|KERNEL_DEBUG_INFO|KERNEL_DEBUG_INFO_REDUCED|KERNEL_DEBUG_INFO_BTF|KERNEL_CGROUPS|KERNEL_CGROUP_BPF|KERNEL_BPF_EVENTS|BPF_TOOLCHAIN_HOST|KERNEL_XDP_SOCKETS|PACKAGE_kmod-xdp-sockets-diag|PACKAGE_daed|PACKAGE_luci-app-daed)=' \
-            .config.requested \
-            || true
-
-          echo
-          echo "===== Final DAED configuration ====="
-
-          grep -E \
-            '^CONFIG_(DEVEL|KERNEL_DEBUG_INFO|KERNEL_DEBUG_INFO_REDUCED|KERNEL_DEBUG_INFO_BTF|KERNEL_CGROUPS|KERNEL_CGROUP_BPF|KERNEL_BPF_EVENTS|BPF_TOOLCHAIN_HOST|KERNEL_XDP_SOCKETS|PACKAGE_kmod-xdp-sockets-diag|PACKAGE_daed|PACKAGE_luci-app-daed)=' \
-            .config \
-            || true
-
-          echo
-          echo "===== Search kernel configuration symbols ====="
-
-          for symbol in \
-            CONFIG_DEBUG_INFO \
-            CONFIG_DEBUG_INFO_BTF \
-            CONFIG_DEBUG_INFO_BTF_MODULES \
-            CONFIG_BPF \
-            CONFIG_BPF_SYSCALL \
-            CONFIG_CGROUPS \
-            CONFIG_CGROUP_BPF \
-            CONFIG_BPF_EVENTS \
-            CONFIG_XDP_SOCKETS
-
-          do
-            echo
-            echo ">>> $symbol"
-
-            grep -R \
-              -n \
-              --include='Config.in*' \
-              --include='*.in' \
-              "$symbol" \
-              target \
-              package \
-              2>/dev/null \
-              | head -20 \
-              || true
-          done
-
-          echo
-          echo "============================================================"
-
-
-      # ============================================================
-      # 14. Check defconfig warnings
-      # ============================================================
-
-      - name: Check defconfig warnings
-        working-directory: ./openwrt
-
-        shell: bash
-
-        run: |
-          set -e
-
-          echo "============================================================"
-          echo "CHECK DEFCONFIG WARNINGS"
-          echo "============================================================"
-
-          if [ ! -f defconfig.log ]; then
-            echo "ERROR: defconfig.log not found."
-            exit 1
-          fi
-
-          echo
-          echo "===== Warning / dependency messages ====="
-
-          grep -n -E \
-            'WARNING:|warning:|depends on|dependency|not found|unknown symbol|invalid' \
-            defconfig.log \
-            || true
-
-          echo
-          echo "===== OpenClash override check ====="
+          echo "===== OpenClash override ====="
 
           if grep -q \
             "Not overriding core package 'luci-app-openclash'" \
@@ -835,8 +801,9 @@ jobs:
 
           fi
 
+
           echo
-          echo "===== Argon dependency check ====="
+          echo "===== Argon dependency ====="
 
           if grep -q \
             "package/argon-config/Makefile.*depends on 'luci-theme-argon', which does not exist" \
@@ -851,154 +818,32 @@ jobs:
 
           fi
 
-          echo
-          echo "===== Complete defconfig log ====="
-
-          cat defconfig.log
 
           echo
-          echo "============================================================"
+          echo "===== Defconfig warnings ====="
 
-
-      # ============================================================
-      # 15. Package dependency check
-      # ============================================================
-
-      - name: Package dependency check
-        working-directory: ./openwrt
-
-        shell: bash
-
-        run: |
-          set -e
-
-          echo "============================================================"
-          echo "PACKAGE DEPENDENCY CHECK"
-          echo "============================================================"
-
-          echo
-          echo "===== Third-party package dependencies ====="
-
-          for dir in \
-            package/openclash \
-            package/passwall2 \
-            package/dae \
-            package/lucky \
-            package/argon \
-            package/argon-config \
-            feeds/rtp2httpd
-
-          do
-            if [ -d "$dir" ]; then
-
-              echo
-              echo "############################################################"
-              echo "# $dir"
-              echo "############################################################"
-
-              grep -R -n \
-                --include='Makefile' \
-                -E 'DEPENDS[+:]?=|LUCI_DEPENDS[+:]?=' \
-                "$dir" \
-                2>/dev/null \
-                || true
-
-            fi
-          done
+          grep -n -E \
+            'WARNING:|warning:|depends on|dependency|not found|unknown symbol|invalid' \
+            defconfig.log \
+            || true
 
           echo
           echo "============================================================"
 
 
       # ============================================================
-      # 16. Search known dependency problems
+      # 15. Show selected configuration
       # ============================================================
 
-      - name: Search known dependency problems
-        working-directory: ./openwrt
-
-        shell: bash
-
-        run: |
-          set -e
-
-          echo "============================================================"
-          echo "KNOWN DEPENDENCY SEARCH"
-          echo "============================================================"
-
-          check_dependency() {
-            NAME="$1"
-
-            echo
-            echo "############################################################"
-            echo "# SEARCH: $NAME"
-            echo "############################################################"
-
-            grep -R -n \
-              --include='Makefile' \
-              --include='Config.in' \
-              --include='*.in' \
-              "$NAME" \
-              package \
-              feeds \
-              target \
-              2>/dev/null \
-              | head -50 \
-              || true
-          }
-
-          check_dependency "vmlinux-btf"
-          check_dependency "BPF_TOOLCHAIN_HOST"
-          check_dependency "DEBUG_INFO_BTF"
-          check_dependency "kmod-nft-tproxy"
-          check_dependency "kmod-nft-socket"
-          check_dependency "kmod-xdp-sockets-diag"
-          check_dependency "sing-box"
-          check_dependency "chinadns-ng"
-          check_dependency "proto-bonding"
-
-          echo
-          echo "============================================================"
-
-
-      # ============================================================
-      # 17. Save final config artifact
-      # ============================================================
-
-      - name: Upload config diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-
-        with:
-          name: immortalwrt-v3-test05-config-${{ github.run_number }}
-          path: |
-            ./openwrt/.config
-            ./openwrt/.config.requested
-            ./openwrt/defconfig.log
-          if-no-files-found: warn
-          retention-days: 14
-
-
-      # ============================================================
-      # 18. Final summary
-      # ============================================================
-
-      - name: Final summary
+      - name: Show selected configuration
         working-directory: ./openwrt
 
         run: |
           set -e
 
-          echo
-          echo "################################################################"
-          echo "# IMMORTALWRT V3 TEST 05 FINAL SUMMARY"
-          echo "################################################################"
-
-          echo
-          echo "===== ImmortalWrt ====="
-
-          git log -1 --format='commit: %H'
-          git log -1 --format='subject: %s'
+          echo "============================================================"
+          echo "SELECTED BUILD CONFIGURATION"
+          echo "============================================================"
 
           echo
           echo "===== Target ====="
@@ -1009,7 +854,7 @@ jobs:
             || true
 
           echo
-          echo "===== Image configuration ====="
+          echo "===== Image ====="
 
           grep -E \
             '^CONFIG_(TARGET_KERNEL_PARTSIZE|TARGET_ROOTFS_PARTSIZE|TARGET_IMAGES_GZIP|EFI_IMAGES)=' \
@@ -1044,7 +889,7 @@ jobs:
           echo "===== DAED / BTF ====="
 
           grep -E \
-            '^CONFIG_(KERNEL_DEBUG_INFO|KERNEL_DEBUG_INFO_REDUCED|KERNEL_DEBUG_INFO_BTF|KERNEL_CGROUPS|KERNEL_CGROUP_BPF|KERNEL_BPF_EVENTS|BPF_TOOLCHAIN_HOST|KERNEL_XDP_SOCKETS)=' \
+            '^CONFIG_(DEVEL|KERNEL_DEBUG_INFO|KERNEL_DEBUG_INFO_REDUCED|KERNEL_DEBUG_INFO_BTF|KERNEL_CGROUPS|KERNEL_CGROUP_BPF|KERNEL_BPF_EVENTS|BPF_TOOLCHAIN_HOST|KERNEL_XDP_SOCKETS)=' \
             .config \
             || true
 
@@ -1057,14 +902,469 @@ jobs:
             || true
 
           echo
-          echo "===== Other ====="
+          echo "============================================================"
 
-          grep -E \
-            '^CONFIG_PACKAGE_(luci-app-lucky|luci-app-rtp2httpd|luci-app-diskman|luci-app-irqbalance|luci-app-package-manager|open-vm-tools|iperf3|tcpdump|haproxy|socat|acme|chinadns-ng)=' \
-            .config \
+
+      # ============================================================
+      # 16. Compile
+      #
+      # First build:
+      #   make -j$(nproc) download
+      #   make -j$(nproc) world
+      #
+      # If compilation fails, the complete build log is preserved.
+      # ============================================================
+
+      - name: Download source packages
+        working-directory: ./openwrt
+
+        shell: bash
+
+        run: |
+          set -o pipefail
+
+          echo "============================================================"
+          echo "DOWNLOAD SOURCE PACKAGES"
+          echo "============================================================"
+
+          make download \
+            -j"$(nproc)" \
+            V=s \
+            2>&1 | tee download.log
+
+          echo
+          echo "============================================================"
+          echo "DOWNLOAD COMPLETED"
+          echo "============================================================"
+
+
+      # ============================================================
+      # 17. Compile ImmortalWrt
+      # ============================================================
+
+      - name: Build ImmortalWrt
+        working-directory: ./openwrt
+
+        shell: bash
+
+        run: |
+          set -o pipefail
+
+          echo "============================================================"
+          echo "START IMMORTALWRT BUILD"
+          echo "============================================================"
+
+          echo
+          echo "Start time:"
+          date '+%Y-%m-%d %H:%M:%S %Z'
+
+          echo
+          echo "CPU threads:"
+          nproc
+
+          echo
+          echo "Memory:"
+          free -h
+
+          echo
+          echo "Disk:"
+          df -h .
+
+          echo
+          echo "============================================================"
+
+          make world \
+            -j"$(nproc)" \
+            V=s \
+            2>&1 | tee build.log
+
+          echo
+          echo "============================================================"
+          echo "BUILD COMPLETED"
+          echo "============================================================"
+
+          echo
+          echo "End time:"
+          date '+%Y-%m-%d %H:%M:%S %Z'
+
+
+      # ============================================================
+      # 18. Show build result
+      # ============================================================
+
+      - name: Inspect build result
+        if: always()
+        working-directory: ./openwrt
+
+        shell: bash
+
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "BUILD RESULT"
+          echo "============================================================"
+
+          echo
+          echo "===== Bin directory ====="
+
+          if [ -d bin ]; then
+            find bin \
+              -maxdepth 3 \
+              -type f \
+              -printf '%p\t%k KB\n' \
+              | sort \
+              || true
+          else
+            echo "bin directory does not exist."
+          fi
+
+
+          echo
+          echo "===== EFI / x86 image candidates ====="
+
+          find bin \
+            -type f \
+            \( \
+              -name '*efi*' \
+              -o -name '*combined*' \
+              -o -name '*.img.gz' \
+              -o -name '*.img' \
+            \) \
+            -print \
+            2>/dev/null \
             || true
+
+
+          echo
+          echo "============================================================"
+
+
+      # ============================================================
+      # 19. Prepare final firmware
+      #
+      # Goal:
+      # Keep only EFI x86_64 image.
+      #
+      # The output name contains build date/time.
+      # ============================================================
+
+      - name: Prepare final firmware
+        if: success()
+        working-directory: ./openwrt
+
+        shell: bash
+
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "PREPARE FINAL FIRMWARE"
+          echo "============================================================"
+
+          BUILD_TIME="$(date '+%Y%m%d-%H%M%S')"
+
+          TARGET_DIR="bin/targets/x86/64"
+
+          if [ ! -d "$TARGET_DIR" ]; then
+            echo "ERROR: Target directory not found:"
+            echo "$TARGET_DIR"
+            exit 1
+          fi
+
+
+          echo
+          echo "===== Target directory ====="
+
+          ls -lah "$TARGET_DIR"
+
+
+          echo
+          echo "===== Search EFI images ====="
+
+          find "$TARGET_DIR" \
+            -maxdepth 1 \
+            -type f \
+            \( \
+              -name '*efi*' \
+              -o -name '*.img.gz' \
+              -o -name '*.img' \
+            \) \
+            -print \
+            || true
+
+
+          # ----------------------------------------------------------
+          # Find EFI image.
+          #
+          # Prefer .img.gz because ImmortalWrt normally generates
+          # compressed x86 EFI images.
+          # ----------------------------------------------------------
+
+          EFI_IMAGE=""
+
+          EFI_IMAGE="$(find "$TARGET_DIR" \
+            -maxdepth 1 \
+            -type f \
+            -name '*combined-efi*.img.gz' \
+            | head -1 || true)"
+
+
+          if [ -z "$EFI_IMAGE" ]; then
+
+            EFI_IMAGE="$(find "$TARGET_DIR" \
+              -maxdepth 1 \
+              -type f \
+              -name '*efi*.img.gz' \
+              | head -1 || true)"
+
+          fi
+
+
+          if [ -z "$EFI_IMAGE" ]; then
+
+            EFI_IMAGE="$(find "$TARGET_DIR" \
+              -maxdepth 1 \
+              -type f \
+              -name '*efi*.img' \
+              | head -1 || true)"
+
+          fi
+
+
+          if [ -z "$EFI_IMAGE" ]; then
+            echo
+            echo "ERROR: EFI image not found."
+            echo
+            echo "Available files:"
+            find "$TARGET_DIR" -maxdepth 1 -type f -print
+            exit 1
+          fi
+
+
+          echo
+          echo "Selected EFI image:"
+          echo "$EFI_IMAGE"
+
+
+          # ----------------------------------------------------------
+          # Create release directory
+          # ----------------------------------------------------------
+
+          rm -rf final-firmware
+          mkdir -p final-firmware
+
+
+          # ----------------------------------------------------------
+          # Copy image with timestamp
+          # ----------------------------------------------------------
+
+          if [[ "$EFI_IMAGE" == *.img.gz ]]; then
+
+            FINAL_NAME="ImmortalWrt-V3-x86_64-efi-${BUILD_TIME}.img.gz"
+
+          else
+
+            FINAL_NAME="ImmortalWrt-V3-x86_64-efi-${BUILD_TIME}.img"
+
+          fi
+
+
+          cp \
+            "$EFI_IMAGE" \
+            "final-firmware/$FINAL_NAME"
+
+
+          echo
+          echo "============================================================"
+          echo "FINAL FIRMWARE"
+          echo "============================================================"
+
+          ls -lh final-firmware
+
+
+          echo
+          echo "Firmware:"
+          echo "final-firmware/$FINAL_NAME"
+
+
+          # ----------------------------------------------------------
+          # Generate SHA256
+          # ----------------------------------------------------------
+
+          cd final-firmware
+
+          sha256sum \
+            "$FINAL_NAME" \
+            | tee SHA256SUMS
+
+
+          echo
+          echo "============================================================"
+
+
+      # ============================================================
+      # 20. Upload final firmware
+      # ============================================================
+
+      - name: Upload final firmware
+        if: success()
+        uses: actions/upload-artifact@v4
+
+        with:
+          name: immortalwrt-v3-x86_64-efi-${{ github.run_number }}
+
+          path: |
+            ./openwrt/final-firmware/*
+
+          if-no-files-found: error
+          retention-days: 30
+
+
+      # ============================================================
+      # 21. Upload build diagnostics
+      # ============================================================
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+
+        with:
+          name: immortalwrt-v3-test06-diagnostics-${{ github.run_number }}
+
+          path: |
+            ./openwrt/.config
+            ./openwrt/.config.requested
+            ./openwrt/defconfig.log
+            ./openwrt/download.log
+            ./openwrt/build.log
+
+          if-no-files-found: warn
+          retention-days: 14
+
+
+      # ============================================================
+      # 22. ccache statistics
+      # ============================================================
+
+      - name: Show ccache statistics
+        if: always()
+        run: |
+          set +e
+
+          echo "============================================================"
+          echo "CCACHE STATISTICS"
+          echo "============================================================"
+
+          ccache --show-stats || true
+
+          echo
+          echo "============================================================"
+
+
+      # ============================================================
+      # 23. Final summary
+      # ============================================================
+
+      - name: Final summary
+        if: always()
+        working-directory: ./openwrt
+
+        run: |
+          set +e
 
           echo
           echo "################################################################"
-          echo "# TEST 05 COMPLETED"
+          echo "# IMMORTALWRT V3 TEST 06 FINAL SUMMARY"
+          echo "################################################################"
+
+          echo
+          echo "===== ImmortalWrt ====="
+
+          git log -1 --format='commit: %H'
+          git log -1 --format='subject: %s'
+
+
+          echo
+          echo "===== Target ====="
+
+          grep -E \
+            '^CONFIG_TARGET_(x86|x86_64|x86_64_Generic)=' \
+            .config \
+            || true
+
+
+          echo
+          echo "===== Image configuration ====="
+
+          grep -E \
+            '^CONFIG_(TARGET_KERNEL_PARTSIZE|TARGET_ROOTFS_PARTSIZE|TARGET_IMAGES_GZIP|EFI_IMAGES)=' \
+            .config \
+            || true
+
+
+          echo
+          echo "===== Proxy ====="
+
+          grep -E \
+            '^CONFIG_PACKAGE_(luci-app-openclash|luci-app-passwall2|daed|luci-app-daed|sing-box)=' \
+            .config \
+            || true
+
+
+          echo
+          echo "===== VPN ====="
+
+          grep -E \
+            '^CONFIG_PACKAGE_(kmod-wireguard|wireguard-tools|luci-proto-wireguard|luci-app-openvpn|luci-app-openvpn-server|openvpn-easy-rsa)=' \
+            .config \
+            || true
+
+
+          echo
+          echo "===== SQM ====="
+
+          grep -E \
+            '^CONFIG_PACKAGE_(luci-app-sqm|sqm-scripts|kmod-sched-cake|kmod-ifb|tc-full)=' \
+            .config \
+            || true
+
+
+          echo
+          echo "===== DAED / BTF ====="
+
+          grep -E \
+            '^CONFIG_(DEVEL|KERNEL_DEBUG_INFO|KERNEL_DEBUG_INFO_REDUCED|KERNEL_DEBUG_INFO_BTF|KERNEL_CGROUPS|KERNEL_CGROUP_BPF|KERNEL_BPF_EVENTS|BPF_TOOLCHAIN_HOST|KERNEL_XDP_SOCKETS)=' \
+            .config \
+            || true
+
+
+          echo
+          echo "===== Argon ====="
+
+          grep -E \
+            '^CONFIG_PACKAGE_(luci-theme-argon|luci-app-argon-config)=' \
+            .config \
+            || true
+
+
+          echo
+          echo "===== Firmware ====="
+
+          if [ -d final-firmware ]; then
+            ls -lah final-firmware
+          else
+            echo "No final firmware generated."
+          fi
+
+
+          echo
+          echo "===== Disk ====="
+
+          df -h .
+
+
+          echo
+          echo "################################################################"
+          echo "# TEST 06 COMPLETED"
           echo "################################################################"
