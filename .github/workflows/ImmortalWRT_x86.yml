@@ -178,6 +178,8 @@ jobs:
           CONFIG_PACKAGE_luci-proto-bonding=y
 
           CONFIG_PACKAGE_luci=y
+          CONFIG_PACKAGE_ttyd=y
+          CONFIG_PACKAGE_luci-app-ttyd=y
           CONFIG_PACKAGE_luci-app-diskman=y
           CONFIG_PACKAGE_luci-app-irqbalance=y
           CONFIG_PACKAGE_luci-app-package-manager=y
