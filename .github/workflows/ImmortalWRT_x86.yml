@@ -215,6 +215,7 @@ jobs:
 
           CONFIG_PACKAGE_luci-app-openvpn=y
           CONFIG_PACKAGE_openvpn-easy-rsa=y
+          CONFIG_PACKAGE_openvpn-openssl=y
 
           CONFIG_PACKAGE_wireguard-tools=y
           CONFIG_PACKAGE_kmod-wireguard=y
