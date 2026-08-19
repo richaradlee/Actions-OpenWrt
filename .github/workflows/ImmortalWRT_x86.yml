@@ -6,10 +6,11 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
-    if: github.event_name == 'schedule' || github.event.repository.owner.id == github.event.sender.id
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event.repository.owner.id == github.event.sender.id    
     permissions:
       contents: write
+     # actions: write
 
     name: ImmortalWrt 编译
     steps:
@@ -39,8 +40,8 @@ jobs:
           set -e
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /usr/lib/jvm /etc/mysql /etc/php || true
           sudo -E apt-get update
+          sudo -E apt-get install -y ack asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler flex gawk gettext git gperf help2man intltool libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool llvm make ninja-build patch pkgconf python3 python3-pyelftools python3-setuptools rsync scons squashfs-tools subversion swig texinfo uglifyjs unzip wget xmlto xxd zlib1g-dev scdoc
           sudo -E timedatectl set-timezone "Asia/Shanghai"
-
       # 4. 克隆 ImmortalWrt 25.12 源码
       - name: 克隆 ImmortalWrt 源码
         env:
@@ -57,7 +58,6 @@ jobs:
           git log -1 --format='commit: %H'
           git log -1 --format='subject: %s'
           echo "SOURCE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
-
       # 5. 配置 feeds
       - name: 配置上游 feeds
         working-directory: ./openwrt
@@ -65,7 +65,6 @@ jobs:
           set -e
           sed -i '1i src-git rtp2httpd https://github.com/stackia/rtp2httpd.git' feeds.conf.default
           cat feeds.conf.default
-
       # 6. 更新并安装官方 feeds
       - name: 更新并安装官方 feeds
         working-directory: ./openwrt
@@ -73,7 +72,6 @@ jobs:
           set -e
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-
       # 7. 安装第三方软件包
       - name: 安装第三方软件包
         working-directory: ./openwrt
@@ -87,7 +85,9 @@ jobs:
           git clone --depth 1 https://github.com/QiuSimons/luci-app-daed.git package/dae
           rm -rf package/feeds/lucky/luci-app-lucky package/lucky
           git clone --depth 1 https://github.com/gdy666/luci-app-lucky.git package/lucky
-
+          rm -rf package/feeds/luci/luci-theme-argon package/feeds/luci/luci-app-argon-config package/argon package/argon-config
+          git clone --depth 1 --branch master https://github.com/jerrykuku/luci-theme-argon.git package/feeds/luci/luci-theme-argon
+          git clone --depth 1 --branch master https://github.com/jerrykuku/luci-app-argon-config.git package/feeds/luci/luci-app-argon-config
       # 8. 验证第三方源码
       - name: 验证第三方软件包源码
         working-directory: ./openwrt
@@ -108,10 +108,27 @@ jobs:
           check_makefile "PassWall2" package/passwall2/luci-app-passwall2/Makefile
           check_makefile "DAED" package/dae/luci-app-daed/Makefile
           check_makefile "Lucky" package/lucky/luci-app-lucky/Makefile
+          check_makefile "Argon" package/feeds/luci/luci-theme-argon/Makefile
+          check_makefile "Argon Config" package/feeds/luci/luci-app-argon-config/Makefile
+          ARGON_REMOTE="$(git -C package/feeds/luci/luci-theme-argon remote get-url origin)"
+          ARGON_BRANCH="$(git -C package/feeds/luci/luci-theme-argon branch --show-current)"
+          ARGON_COMMIT="$(git -C package/feeds/luci/luci-theme-argon rev-parse HEAD)"
+          ARGON_VERSION="$(git -C package/feeds/luci/luci-theme-argon describe --tags --always 2>/dev/null || echo unknown)"
+          echo "============================================================"
+          echo "ARGON SOURCE"
+          echo "============================================================"
+          echo "Remote: $ARGON_REMOTE"
+          echo "Branch: $ARGON_BRANCH"
+          echo "Commit: $ARGON_COMMIT"
+          echo "Version: $ARGON_VERSION"
+          test "$ARGON_REMOTE" = "https://github.com/jerrykuku/luci-theme-argon.git"
+          test "$ARGON_BRANCH" = "master"
+          grep -q "^PKG_VERSION:=" package/feeds/luci/luci-theme-argon/Makefile
+          echo "ARGON_COMMIT=$ARGON_COMMIT" >> "$GITHUB_ENV"
+          echo "ARGON_VERSION=$ARGON_VERSION" >> "$GITHUB_ENV"
           echo "============================================================"
           echo "THIRD-PARTY SOURCE CHECK PASSED"
           echo "============================================================"
-
       # 9. 自定义应用配置
       - name: 自定义应用配置
         working-directory: ./openwrt
@@ -119,7 +136,7 @@ jobs:
           set -e
           rm -f .config .config.old
           touch .config
-          cat >> .config <<EOF
+          cat >> .config <<'EOF'
           # ============================================================
           # Target / Image / Build
           # ============================================================
@@ -130,6 +147,7 @@ jobs:
           CONFIG_TARGET_ROOTFS_PARTSIZE=640
           CONFIG_TARGET_IMAGES_GZIP=y
           CONFIG_EFI_IMAGES=y
+          CONFIG_CCACHE=y
           # ============================================================
           # IPv6 / IPv6 Firewall
           # ============================================================
@@ -269,17 +287,55 @@ jobs:
           # ============================================================
           CONFIG_PACKAGE_irqbalance=y
           EOF
-
           cp .config .config.requested
-
-      # 10. 运行 make defconfig
+      # 10. 配置 ccache
+      - name: 配置 ccache
+        working-directory: ./openwrt
+        run: |
+          set -e
+          mkdir -p .ccache
+          ccache --set-config=max_size=5G
+          ccache --set-config=compression=true
+          ccache -z
+          ccache -s
+      # 11. 恢复下载缓存
+      - name: 恢复下载缓存
+        uses: actions/cache/restore@v4
+        id: cache-dl
+        with:
+          path: ./openwrt/dl
+          key: ${{ runner.os }}-immortalwrt-dl-v4-${{ env.SOURCE_COMMIT }}
+          restore-keys: |
+            ${{ runner.os }}-immortalwrt-dl-v4-
+            ${{ runner.os }}-immortalwrt-dl-
+      # 12. 恢复 ccache 缓存
+      - name: 恢复 ccache 缓存
+        uses: actions/cache/restore@v4
+        id: cache-ccache
+        with:
+          path: ./openwrt/.ccache
+          key: ${{ runner.os }}-immortalwrt-ccache-v4
+          restore-keys: |
+            ${{ runner.os }}-immortalwrt-ccache-
+      # 13. 恢复工具链缓存
+      - name: 恢复工具链缓存
+        uses: actions/cache/restore@v4
+        id: cache-staging
+        with:
+          path: |
+            ./openwrt/staging_dir/host
+            ./openwrt/staging_dir/toolchain-*
+          key: ${{ runner.os }}-immortalwrt-staging-v4-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config') }}
+          restore-keys: |
+            ${{ runner.os }}-immortalwrt-staging-v4-
+            ${{ runner.os }}-immortalwrt-staging-
+      # 14. 运行 make defconfig
       - name: 运行 make defconfig
         working-directory: ./openwrt
         run: |
           set -o pipefail
           make defconfig 2>&1 | tee defconfig.log
-
-      # 11. 验证配置
+      # 15. 验证配置
       - name: 验证配置
         working-directory: ./openwrt
         run: |
@@ -291,6 +347,15 @@ jobs:
             echo "$SYMBOL = ${VALUE:-<NOT SET>}"
             [ "$VALUE" = y ] || {
               echo "ERROR: $SYMBOL is not enabled."
+              FAILED=1
+            }
+          }
+          check_not_y() {
+            SYMBOL="$1"
+            VALUE="$(grep "^${SYMBOL}=" .config 2>/dev/null | cut -d= -f2 || true)"
+            echo "$SYMBOL = ${VALUE:-<NOT SET>}"
+            [ "$VALUE" != y ] || {
+              echo "ERROR: $SYMBOL unexpectedly enabled."
               FAILED=1
             }
           }
@@ -326,10 +391,47 @@ jobs:
             openvpn-easy-rsa \
             kmod-wireguard \
             wireguard-tools \
-            luci-proto-wireguard
+            luci-proto-wireguard \
+            ccachedummy
           do
+            if [ "$P" = "ccachedummy" ]; then
+              continue
+            fi
             check_y "CONFIG_PACKAGE_$P"
           done
+          echo
+          echo "===== Argon 主题 ====="
+          test -f package/feeds/luci/luci-theme-argon/Makefile || {
+            echo "ERROR: Argon theme Makefile not found."
+            FAILED=1
+          }
+          test -f package/feeds/luci/luci-app-argon-config/Makefile || {
+            echo "ERROR: Argon config Makefile not found."
+            FAILED=1
+          }
+          grep -q "^CONFIG_PACKAGE_luci-app-argon-config=y$" .config || {
+            echo "ERROR: Argon config package is not enabled."
+            FAILED=1
+          }
+          grep -R -n "luci-theme-argon" package/feeds/luci/luci-app-argon-config/Makefile >/dev/null || {
+            echo "ERROR: Argon config dependency not found."
+            FAILED=1
+          }
+          echo "Argon commit: ${ARGON_COMMIT}"
+          echo "Argon version: ${ARGON_VERSION}"
+          echo
+          echo "===== 已禁用组件 ====="
+          check_not_y CONFIG_PACKAGE_luci-app-openvpn-server
+          echo
+          echo "===== 警告检查 ====="
+          if grep -q "Not overriding core package 'luci-app-openclash'" defconfig.log; then
+            echo "ERROR: OpenClash override warning."
+            FAILED=1
+          fi
+          if grep -q "package/feeds/luci/luci-app-argon-config/Makefile.*depends on 'luci-theme-argon', which does not exist" defconfig.log; then
+            echo "ERROR: Argon dependency warning."
+            FAILED=1
+          fi
           if [ "$FAILED" -ne 0 ]; then
             echo
             echo "============================================================"
@@ -341,8 +443,7 @@ jobs:
           echo "============================================================"
           echo "最终配置验证通过"
           echo "============================================================"
-
-      # 12. 审计重要组件
+      # 16. 审计重要组件
       - name: 审计重要组件
         working-directory: ./openwrt
         run: |
@@ -371,22 +472,65 @@ jobs:
           echo "===== DAED / BTF ====="
           grep -E '^CONFIG_(DEVEL|KERNEL_DEBUG_INFO|KERNEL_DEBUG_INFO_BTF|KERNEL_CGROUPS|KERNEL_CGROUP_BPF|KERNEL_BPF_EVENTS|BPF_TOOLCHAIN_HOST|KERNEL_XDP_SOCKETS)=' .config || true
           echo
+          echo "===== 缓存 ====="
+          echo "CCACHE_DIR=$PWD/.ccache"
+          ccache -s || true
           echo
           echo "===== 依赖警告 ====="
           grep -n -E 'WARNING:|depends on|dependency|not found|unknown symbol|invalid' defconfig.log || true
-
-      # 13. 编译固件
+      # 17. 编译固件
       - name: 编译 ImmortalWrt
         working-directory: ./openwrt
         env:
           TZ: Asia/Shanghai
+          CCACHE_DIR: ${{ github.workspace }}/openwrt/.ccache
         run: |
-          make download -j$(nproc)
-          make -j$(nproc) V=s 2>&1 | tee build.log || \
-          (echo "Multi-thread build failed, retrying with single thread..." && \
-          make -j1 V=s 2>&1 | tee -a build.log)
+          set -o pipefail
+          export FORCE_UNSAFE_CONFIGURE=1
+          mkdir -p "$CCACHE_DIR"
+          ccache --set-config=max_size=5G
+          ccache -z
+          echo "============================================================"
+          echo "编译前 CCACHE 状态"
+          echo "============================================================"
+          ccache -s || true
+          echo "============================================================"
+          echo "开始编译 IMMORTALWRT"
+          echo "============================================================"
+          make -j"$(nproc)" download
+          make -j"$(nproc)" world V=s 2>&1 | tee build.log
+          echo
+          echo "============================================================"
+          echo "编译后 CCACHE 状态"
+          echo "============================================================"
+          ccache -s || true
+      # 18. 保存下载缓存
+      - name: 保存下载缓存
+        if: success() && steps.cache-dl.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ./openwrt/dl
+          key: ${{ runner.os }}-immortalwrt-dl-v4-${{ env.SOURCE_COMMIT }}
 
-      # 14. 收集 EFI 镜像和校验和
+      # 19. 保存 ccache 缓存
+      - name: 保存 ccache 缓存
+        if: success() && steps.cache-ccache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ./openwrt/.ccache
+          key: ${{ runner.os }}-immortalwrt-ccache-v4
+
+      # 20. 保存工具链缓存
+      - name: 保存工具链缓存
+        if: success() && steps.cache-staging.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ./openwrt/staging_dir/host
+            ./openwrt/staging_dir/toolchain-*
+          key: ${{ runner.os }}-immortalwrt-staging-v4-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config') }}
+
+      # 21. 收集 EFI 镜像和校验和
       - name: 收集发布文件
         working-directory: ./openwrt
         run: |
@@ -405,6 +549,8 @@ jobs:
           cat > release/buildinfo.txt <<EOF
           ImmortalWrt branch: openwrt-25.12
           ImmortalWrt commit: ${SOURCE_COMMIT}
+          Argon version: ${ARGON_VERSION}
+          Argon commit: ${ARGON_COMMIT}
           Target: x86_64 Generic
           Firmware: EFI
           Kernel: 6.12.x
@@ -417,8 +563,7 @@ jobs:
           echo "发布文件列表"
           echo "============================================================"
           ls -lh release/
-
-      # 15. 上传固件和诊断信息
+      # 22. 上传固件和诊断信息
       - name: 上传固件
         uses: actions/upload-artifact@v4
         with:
@@ -444,7 +589,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      # 16. 创建 GitHub Release
+      # 23. 创建 GitHub Release
       - name: 创建 GitHub Release
         if: success()
         uses: softprops/action-gh-release@v2
@@ -463,12 +608,15 @@ jobs:
             - DAED
             - Lucky
             - RTP2HTTPD
+            - Argon Theme
             - SQM / CAKE
             - WireGuard
             - OpenVPN
             ### 源码
             **ImmortalWrt：** `openwrt-25.12`
             **ImmortalWrt commit：** `${{ env.SOURCE_COMMIT }}`
+            **Argon：** `master`
+            **Argon commit：** `${{ env.ARGON_COMMIT }}`
             > 本 Release 为 GitHub Actions 自动编译发布。
           files: |
             ./openwrt/release/${{ env.RELEASE_FILE }}
@@ -480,7 +628,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 17. 最终总结
+      # 24. 删除旧的 workflow 运行记录
+      #- name: 删除旧的 workflow 运行记录
+      #  if: always()
+      #  uses: Mattraks/delete-workflow-runs@v2
+      #  continue-on-error: true
+      #  with:
+      #    token: ${{ github.token }}
+      #    repository: ${{ github.repository }}
+      #    retain_days: 20
+
       - name: 最终总结
         if: always()
         working-directory: ./openwrt
@@ -496,4 +653,6 @@ jobs:
           echo "Release: ${RELEASE_TAG:-not-created}"
           echo "Image: ${RELEASE_FILE:-not-created}"
           echo
+          echo "CCache:"
+          ccache -s || true
           echo "################################################################"
