@@ -2,8 +2,6 @@ name: ImmortalWrt x86
 on:
   schedule:
     - cron: "0 10,18 * * *"
-  workflow_dispatch:
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -715,7 +713,6 @@ jobs:
 
       - name: 最终总结
         if: always()
-        working-directory: ./openwrt
         run: |
           echo "################################################################"
           echo "# IMMORTALWRT 编译已完成"
