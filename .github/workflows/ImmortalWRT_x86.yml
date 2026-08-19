@@ -39,7 +39,6 @@ jobs:
           set -e
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell /usr/share/swift /usr/local/.ghcup /usr/lib/jvm /etc/mysql /etc/php || true
           sudo -E apt-get update
-          sudo -E apt-get install -y ack asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler flex gawk gettext git gperf help2man intltool libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool llvm make ninja-build patch pkgconf python3 python3-pyelftools python3-setuptools rsync scons squashfs-tools subversion swig texinfo uglifyjs unzip wget xmlto xxd zlib1g-dev scdoc
           sudo -E timedatectl set-timezone "Asia/Shanghai"
 
       # 4. 克隆 ImmortalWrt 25.12 源码
@@ -88,7 +87,10 @@ jobs:
           git clone --depth 1 https://github.com/QiuSimons/luci-app-daed.git package/dae
           rm -rf package/feeds/lucky/luci-app-lucky package/lucky
           git clone --depth 1 https://github.com/gdy666/luci-app-lucky.git package/lucky
-          
+          # rm -rf package/feeds/luci/luci-theme-argon package/feeds/luci/luci-app-argon-config package/argon package/argon-config
+          # git clone --depth 1 --branch master https://github.com/jerrykuku/luci-theme-argon.git package/feeds/luci/luci-theme-argon
+          # git clone --depth 1 --branch master https://github.com/jerrykuku/luci-app-argon-config.git package/feeds/luci/luci-app-argon-config
+
       # 8. 验证第三方源码
       - name: 验证第三方软件包源码
         working-directory: ./openwrt
@@ -121,6 +123,9 @@ jobs:
           rm -f .config .config.old
           touch .config
           cat >> .config <<'EOF'
+          # ============================================================
+          # Target / Image / Build
+          # ============================================================
           CONFIG_TARGET_x86=y
           CONFIG_TARGET_x86_64=y
           CONFIG_TARGET_x86_64_Generic=y
@@ -128,7 +133,9 @@ jobs:
           CONFIG_TARGET_ROOTFS_PARTSIZE=640
           CONFIG_TARGET_IMAGES_GZIP=y
           CONFIG_EFI_IMAGES=y
-          CONFIG_CCACHE=y
+          # ============================================================
+          # IPv6 / IPv6 Firewall
+          # ============================================================
           CONFIG_PACKAGE_dnsmasq_full_dhcpv6=y
           CONFIG_PACKAGE_ipv6helper=y
           CONFIG_PACKAGE_odhcp6c=y
@@ -136,23 +143,41 @@ jobs:
           CONFIG_PACKAGE_luci-proto-ipv6=y
           CONFIG_PACKAGE_ip6tables=y
           CONFIG_PACKAGE_kmod-nft-nat6=y
+          # ============================================================
+          # Network / Interface
+          # ============================================================
           CONFIG_PACKAGE_kmod-bonding=y
           CONFIG_PACKAGE_proto-bonding=y
           CONFIG_PACKAGE_luci-proto-bonding=y
+          # ============================================================
+          # LuCI Core / Web Management
+          # ============================================================
           CONFIG_PACKAGE_luci=y
           CONFIG_PACKAGE_ttyd=y
           CONFIG_PACKAGE_luci-app-ttyd=y
           CONFIG_PACKAGE_luci-app-diskman=y
           CONFIG_PACKAGE_luci-app-irqbalance=y
           CONFIG_PACKAGE_luci-app-package-manager=y
+          # ============================================================
+          # SQM / QoS / CAKE
+          # ============================================================
           CONFIG_PACKAGE_luci-app-sqm=y
           CONFIG_PACKAGE_sqm-scripts=y
           CONFIG_PACKAGE_kmod-sched-cake=y
           CONFIG_PACKAGE_kmod-ifb=y
           CONFIG_PACKAGE_tc-full=y
+          # ============================================================
+          # Streaming / IPTV
+          # ============================================================
           CONFIG_PACKAGE_luci-app-rtp2httpd=y
+          # ============================================================
+          # Proxy / Traffic Routing
+          # ============================================================
           CONFIG_PACKAGE_luci-app-passwall2=y
           CONFIG_PACKAGE_luci-app-openclash=y
+          # ============================================================
+          # DAED / BPF / XDP
+          # ============================================================
           CONFIG_DEVEL=y
           CONFIG_KERNEL_DEBUG_INFO=y
           CONFIG_KERNEL_DEBUG_INFO_BTF=y
@@ -169,66 +194,99 @@ jobs:
           CONFIG_PACKAGE_kmod-nft-compat=y
           CONFIG_PACKAGE_nftables=y
           CONFIG_PACKAGE_ip-full=y
+          # ============================================================
+          # OpenVPN
+          # ============================================================
           CONFIG_PACKAGE_luci-app-openvpn=y
           CONFIG_PACKAGE_openvpn-easy-rsa=y
           CONFIG_PACKAGE_openvpn-openssl=y
+          # ============================================================
+          # WireGuard
+          # ============================================================
           CONFIG_PACKAGE_wireguard-tools=y
           CONFIG_PACKAGE_kmod-wireguard=y
           CONFIG_PACKAGE_luci-proto-wireguard=y
+          # ============================================================
+          # Lucky
+          # ============================================================
           CONFIG_PACKAGE_luci-app-lucky=y
+          # ============================================================
+          # Argon Theme
+          # ============================================================
           CONFIG_PACKAGE_luci-theme-argon=y
           CONFIG_PACKAGE_luci-app-argon-config=y
+          # ============================================================
+          # UPnP / NAT-PMP / PCP
+          # ============================================================
           CONFIG_PACKAGE_luci-app-upnp=y
           CONFIG_PACKAGE_miniupnpd-nftables=y
           CONFIG_PACKAGE_luci-i18n-upnp-zh-cn=y
+          # ============================================================
+          # Vlmcsd / KMS
+          # ============================================================
           CONFIG_PACKAGE_vlmcsd=y
           CONFIG_PACKAGE_luci-app-vlmcsd=y
           CONFIG_PACKAGE_luci-i18n-vlmcsd-zh-cn=y
+          # ============================================================
+          # System / CLI Tools
+          # ============================================================
           CONFIG_PACKAGE_curl=y
           CONFIG_PACKAGE_htop=y
           CONFIG_PACKAGE_nano=y
           CONFIG_PACKAGE_screen=y
           CONFIG_PACKAGE_tree=y
           CONFIG_PACKAGE_wget=y
+          # ============================================================
+          # Network Services / Utilities
+          # ============================================================
           CONFIG_PACKAGE_haproxy=y
           CONFIG_PACKAGE_socat=y
           CONFIG_SOCAT_SSL=y
+          # ============================================================
+          # DNS / Proxy Core
+          # ============================================================
           CONFIG_SING_BOX_WITH_ECH=y
           CONFIG_PACKAGE_sing-box=y
           CONFIG_PACKAGE_chinadns-ng=y
+          # ============================================================
+          # Virtualization
+          # ============================================================
           CONFIG_PACKAGE_open-vm-tools=y
+          # ============================================================
+          # Network Diagnostics / Performance
+          # ============================================================
           CONFIG_PACKAGE_iperf3=y
           CONFIG_PACKAGE_iftop=y
           CONFIG_PACKAGE_tcpdump=y
           CONFIG_PACKAGE_pv=y
           CONFIG_PACKAGE_bind-host=y
           CONFIG_PACKAGE_tcping=y
+          # ============================================================
+          # Firewall / Network Utilities
+          # ============================================================
           CONFIG_PACKAGE_firewall4=y
           CONFIG_PACKAGE_dns2socks=y
           CONFIG_PACKAGE_geoview=y
+          # ============================================================
+          # System Performance
+          # ============================================================
           CONFIG_PACKAGE_irqbalance=y
           EOF
+
           cp .config .config.requested
 
-      # 10. 配置 ccache（仅保留编译配置，不使用 GitHub Actions 缓存）
-      - name: 配置 ccache
         working-directory: ./openwrt
         run: |
           set -e
-          mkdir -p .ccache
-          ccache --set-config=max_size=5G
-          ccache --set-config=compression=true
-          ccache -z
-          ccache -s
 
-      # 11. 运行 make defconfig
+      # 10. 运行 make defconfig
       - name: 运行 make defconfig
         working-directory: ./openwrt
         run: |
           set -o pipefail
           make defconfig 2>&1 | tee defconfig.log
 
-      # 12. 验证配置
+      # 11. 验证配置
       - name: 验证配置
         working-directory: ./openwrt
         run: |
@@ -291,7 +349,7 @@ jobs:
           echo "最终配置验证通过"
           echo "============================================================"
 
-      # 13. 审计重要组件
+      # 12. 审计重要组件
       - name: 审计重要组件
         working-directory: ./openwrt
         run: |
@@ -320,41 +378,22 @@ jobs:
           echo "===== DAED / BTF ====="
           grep -E '^CONFIG_(DEVEL|KERNEL_DEBUG_INFO|KERNEL_DEBUG_INFO_BTF|KERNEL_CGROUPS|KERNEL_CGROUP_BPF|KERNEL_BPF_EVENTS|BPF_TOOLCHAIN_HOST|KERNEL_XDP_SOCKETS)=' .config || true
           echo
-          echo "===== ccache（本地构建缓存，未使用 Actions cache） ====="
-          echo "CCACHE_DIR=$PWD/.ccache"
-          ccache -s || true
           echo
           echo "===== 依赖警告 ====="
           grep -n -E 'WARNING:|depends on|dependency|not found|unknown symbol|invalid' defconfig.log || true
 
-      # 14. 编译固件
+      # 13. 编译固件
       - name: 编译 ImmortalWrt
         working-directory: ./openwrt
         env:
           TZ: Asia/Shanghai
-          CCACHE_DIR: ${{ github.workspace }}/openwrt/.ccache
         run: |
-          set -o pipefail
-          export FORCE_UNSAFE_CONFIGURE=1
-          mkdir -p "$CCACHE_DIR"
-          ccache --set-config=max_size=5G
-          ccache -z
-          echo "============================================================"
-          echo "编译前 CCACHE 状态"
-          echo "============================================================"
-          ccache -s || true
-          echo "============================================================"
-          echo "开始编译 IMMORTALWRT"
-          echo "============================================================"
-          make -j"$(nproc)" download
-          make -j"$(nproc)" world V=s 2>&1 | tee build.log
-          echo
-          echo "============================================================"
-          echo "编译后 CCACHE 状态"
-          echo "============================================================"
-          ccache -s || true
+          make download -j$(nproc)
+          make -j$(nproc) V=s 2>&1 | tee build.log || \
+          (echo "Multi-thread build failed, retrying with single thread..." && \
+          make -j1 V=s 2>&1 | tee -a build.log)
 
-      # 15. 收集 EFI 镜像和校验和
+      # 14. 收集 EFI 镜像和校验和
       - name: 收集发布文件
         working-directory: ./openwrt
         run: |
@@ -386,7 +425,7 @@ jobs:
           echo "============================================================"
           ls -lh release/
 
-      # 16. 上传固件和诊断信息
+      # 15. 上传固件和诊断信息
       - name: 上传固件
         uses: actions/upload-artifact@v4
         with:
@@ -412,7 +451,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      # 17. 创建 GitHub Release
+      # 16. 创建 GitHub Release
       - name: 创建 GitHub Release
         if: success()
         uses: softprops/action-gh-release@v2
@@ -448,7 +487,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 18. 最终总结
+      # 17. 最终总结
       - name: 最终总结
         if: always()
         working-directory: ./openwrt
@@ -464,6 +503,4 @@ jobs:
           echo "Release: ${RELEASE_TAG:-not-created}"
           echo "Image: ${RELEASE_FILE:-not-created}"
           echo
-          echo "CCache:"
-          ccache -s || true
           echo "################################################################"
