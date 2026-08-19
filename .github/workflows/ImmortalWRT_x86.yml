@@ -6,7 +6,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     if: github.event_name == 'schedule' || github.event.repository.owner.id == github.event.sender.id    
     permissions:
       contents: write
@@ -715,6 +715,7 @@ jobs:
 
       - name: 最终总结
         if: always()
+        working-directory: ./openwrt
         run: |
           echo "################################################################"
           echo "# IMMORTALWRT 编译已完成"
