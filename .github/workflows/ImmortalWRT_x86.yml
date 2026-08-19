@@ -87,9 +87,6 @@ jobs:
           git clone --depth 1 https://github.com/QiuSimons/luci-app-daed.git package/dae
           rm -rf package/feeds/lucky/luci-app-lucky package/lucky
           git clone --depth 1 https://github.com/gdy666/luci-app-lucky.git package/lucky
-          # rm -rf package/feeds/luci/luci-theme-argon package/feeds/luci/luci-app-argon-config package/argon package/argon-config
-          # git clone --depth 1 --branch master https://github.com/jerrykuku/luci-theme-argon.git package/feeds/luci/luci-theme-argon
-          # git clone --depth 1 --branch master https://github.com/jerrykuku/luci-app-argon-config.git package/feeds/luci/luci-app-argon-config
 
       # 8. 验证第三方源码
       - name: 验证第三方软件包源码
@@ -274,10 +271,6 @@ jobs:
           EOF
 
           cp .config .config.requested
-
-        working-directory: ./openwrt
-        run: |
-          set -e
 
       # 10. 运行 make defconfig
       - name: 运行 make defconfig
