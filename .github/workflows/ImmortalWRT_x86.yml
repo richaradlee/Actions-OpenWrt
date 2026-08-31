@@ -88,6 +88,12 @@ jobs:
           rm -rf package/feeds/luci/luci-theme-argon package/feeds/luci/luci-app-argon-config package/argon package/argon-config
           git clone --depth 1 --branch master https://github.com/jerrykuku/luci-theme-argon.git package/feeds/luci/luci-theme-argon
           git clone --depth 1 --branch master https://github.com/jerrykuku/luci-app-argon-config.git package/feeds/luci/luci-app-argon-config
+          # >>> MODIFIED: 加入 luci-app-timecontrol（JavaScript 版，js 分支）
+          rm -rf package/luci-app-timecontrol /tmp/luci-app-timecontrol
+          git clone --depth 1 --branch js https://github.com/gaobin89/luci-app-timecontrol.git /tmp/luci-app-timecontrol
+          cp -a /tmp/luci-app-timecontrol/luci-app-timecontrol package/luci-app-timecontrol
+          rm -rf /tmp/luci-app-timecontrol
+          # <<< MODIFIED
       # 8. 验证第三方源码
       - name: 验证第三方软件包源码
         working-directory: ./openwrt
@@ -110,6 +116,22 @@ jobs:
           check_makefile "Lucky" package/lucky/luci-app-lucky/Makefile
           check_makefile "Argon" package/feeds/luci/luci-theme-argon/Makefile
           check_makefile "Argon Config" package/feeds/luci/luci-app-argon-config/Makefile
+          # >>> MODIFIED: 验证 TimeControl 源码及版本
+          check_makefile "TimeControl" package/luci-app-timecontrol/Makefile
+          TIMECONTROL_VERSION="$(grep '^PKG_VERSION:=' package/luci-app-timecontrol/Makefile | cut -d= -f2)"
+          TIMECONTROL_RELEASE="$(grep '^PKG_RELEASE:=' package/luci-app-timecontrol/Makefile | cut -d= -f2)"
+          echo "============================================================"
+          echo "TIMECONTROL SOURCE"
+          echo "============================================================"
+          echo "Branch: js"
+          echo "Version: ${TIMECONTROL_VERSION}"
+          echo "Release: ${TIMECONTROL_RELEASE}"
+          echo "============================================================"
+          echo "TIMECONTROL SOURCE CHECK PASSED"
+          echo "============================================================"
+          echo "TIMECONTROL_VERSION=$TIMECONTROL_VERSION" >> "$GITHUB_ENV"
+          echo "TIMECONTROL_RELEASE=$TIMECONTROL_RELEASE" >> "$GITHUB_ENV"
+          # <<< MODIFIED
           ARGON_REMOTE="$(git -C package/feeds/luci/luci-theme-argon remote get-url origin)"
           ARGON_BRANCH="$(git -C package/feeds/luci/luci-theme-argon branch --show-current)"
           ARGON_COMMIT="$(git -C package/feeds/luci/luci-theme-argon rev-parse HEAD)"
@@ -242,6 +264,14 @@ jobs:
           CONFIG_PACKAGE_vlmcsd=y
           CONFIG_PACKAGE_luci-app-vlmcsd=y
           CONFIG_PACKAGE_luci-i18n-vlmcsd-zh-cn=y
+          # ============================================================
+          # TimeControl / Client Internet Time Control
+          # ============================================================
+          # >>> MODIFIED: TimeControl 用于按 MAC/时间段控制客户端上网
+          CONFIG_PACKAGE_luci-app-timecontrol=y
+          # TimeControl 用于清理已建立的 IPv4/IPv6 连接
+          CONFIG_PACKAGE_conntrack=y
+          # <<< MODIFIED
           # ============================================================
           # System / CLI Tools
           # ============================================================
@@ -389,6 +419,8 @@ jobs:
             socat \
             luci-app-openvpn \
             openvpn-easy-rsa \
+            luci-app-timecontrol \
+            conntrack \
             kmod-wireguard \
             wireguard-tools \
             luci-proto-wireguard \
@@ -400,6 +432,25 @@ jobs:
             check_y "CONFIG_PACKAGE_$P"
           done
           echo
+          # >>> MODIFIED: TimeControl 源码与配置验证
+          echo "===== TimeControl ====="
+          test -f package/luci-app-timecontrol/Makefile || {
+            echo "ERROR: TimeControl Makefile not found."
+            FAILED=1
+          }
+          grep -q "^CONFIG_PACKAGE_luci-app-timecontrol=y$" .config || {
+            echo "ERROR: TimeControl package is not enabled."
+            FAILED=1
+          }
+          grep -q "^CONFIG_PACKAGE_conntrack=y$" .config || {
+            echo "ERROR: conntrack package is not enabled."
+            FAILED=1
+          }
+          echo "TimeControl version: ${TIMECONTROL_VERSION:-unknown}"
+          echo "TimeControl release: ${TIMECONTROL_RELEASE:-unknown}"
+          echo
+          # <<< MODIFIED
+
           echo "===== Argon 主题 ====="
           test -f package/feeds/luci/luci-theme-argon/Makefile || {
             echo "ERROR: Argon theme Makefile not found."
@@ -469,6 +520,13 @@ jobs:
           echo "===== WireGuard ====="
           grep -E '^CONFIG_PACKAGE_(kmod-wireguard|wireguard-tools|luci-proto-wireguard)=' .config || true
           echo
+          # >>> MODIFIED: TimeControl 审计
+          echo "===== TimeControl ====="
+          grep -E '^CONFIG_PACKAGE_(luci-app-timecontrol|conntrack)=' .config || true
+          echo "TimeControl version: ${TIMECONTROL_VERSION:-unknown}"
+          echo "TimeControl release: ${TIMECONTROL_RELEASE:-unknown}"
+          echo
+          # <<< MODIFIED
           echo "===== DAED / BTF ====="
           grep -E '^CONFIG_(DEVEL|KERNEL_DEBUG_INFO|KERNEL_DEBUG_INFO_BTF|KERNEL_CGROUPS|KERNEL_CGROUP_BPF|KERNEL_BPF_EVENTS|BPF_TOOLCHAIN_HOST|KERNEL_XDP_SOCKETS)=' .config || true
           echo
@@ -612,6 +670,9 @@ jobs:
             - SQM / CAKE
             - WireGuard
             - OpenVPN
+            # >>> MODIFIED
+            - TimeControl
+            # <<< MODIFIED
             ### 源码
             **ImmortalWrt：** `openwrt-25.12`
             **ImmortalWrt commit：** `${{ env.SOURCE_COMMIT }}`
