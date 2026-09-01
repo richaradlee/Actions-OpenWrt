@@ -94,6 +94,50 @@ jobs:
           cp -a /tmp/luci-app-timecontrol/luci-app-timecontrol package/luci-app-timecontrol
           rm -rf /tmp/luci-app-timecontrol
           # <<< MODIFIED
+
+          # >>> MODIFIED: 将 TimeControl 菜单移动到“服务”
+          cat > package/luci-app-timecontrol/luci-app-timecontrol/root/usr/share/luci/menu.d/luci-app-timecontrol.json <<'EOF'
+          {
+                  "admin/services/timecontrol": {
+                          "title": "Internet Time Control",
+                          "order": 90,
+                          "action": {
+                                  "type": "view",
+                                  "path": "timecontrol/rules"
+                          },
+                          "depends": {
+                                  "acl": [
+                                          "luci-app-timecontrol"
+                                  ],
+                                  "uci": {
+                                          "timecontrol": true
+                                  }
+                          }
+                  }
+          }
+          EOF
+
+          # >>> MODIFIED: 验证 TimeControl 菜单已经移动到“服务”
+          grep -q '"admin/services/timecontrol"' \
+              package/luci-app-timecontrol/luci-app-timecontrol/root/usr/share/luci/menu.d/luci-app-timecontrol.json || {
+            echo "ERROR: TimeControl menu path modification failed."
+            exit 1
+          }
+
+          ! grep -q '"admin/control/timecontrol"' \
+              package/luci-app-timecontrol/luci-app-timecontrol/root/usr/share/luci/menu.d/luci-app-timecontrol.json || {
+            echo "ERROR: Old TimeControl menu path still exists."
+            exit 1
+          }
+
+          echo "============================================================"
+          echo "TIMECONTROL MENU CHECK PASSED"
+          echo "============================================================"
+          echo "Menu: admin/services/timecontrol"
+          echo "Parent: Services"
+          echo "============================================================"
+          # <<< MODIFIED
+          
       # 8. 验证第三方源码
       - name: 验证第三方软件包源码
         working-directory: ./openwrt
@@ -151,6 +195,7 @@ jobs:
           echo "============================================================"
           echo "THIRD-PARTY SOURCE CHECK PASSED"
           echo "============================================================"
+          
       # 9. 自定义应用配置
       - name: 自定义应用配置
         working-directory: ./openwrt
@@ -318,6 +363,7 @@ jobs:
           CONFIG_PACKAGE_irqbalance=y
           EOF
           cp .config .config.requested
+          
       # 10. 配置 ccache
       - name: 配置 ccache
         working-directory: ./openwrt
@@ -328,6 +374,7 @@ jobs:
           ccache --set-config=compression=true
           ccache -z
           ccache -s
+          
       # 11. 恢复下载缓存
       - name: 恢复下载缓存
         uses: actions/cache/restore@v4
@@ -338,6 +385,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-immortalwrt-dl-v4-
             ${{ runner.os }}-immortalwrt-dl-
+            
       # 12. 恢复 ccache 缓存
       - name: 恢复 ccache 缓存
         uses: actions/cache/restore@v4
@@ -347,6 +395,7 @@ jobs:
           key: ${{ runner.os }}-immortalwrt-ccache-v4
           restore-keys: |
             ${{ runner.os }}-immortalwrt-ccache-
+            
       # 13. 恢复工具链缓存
       - name: 恢复工具链缓存
         uses: actions/cache/restore@v4
@@ -359,12 +408,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-immortalwrt-staging-v4-
             ${{ runner.os }}-immortalwrt-staging-
+            
       # 14. 运行 make defconfig
       - name: 运行 make defconfig
         working-directory: ./openwrt
         run: |
           set -o pipefail
           make defconfig 2>&1 | tee defconfig.log
+          
       # 15. 验证配置
       - name: 验证配置
         working-directory: ./openwrt
@@ -494,6 +545,7 @@ jobs:
           echo "============================================================"
           echo "最终配置验证通过"
           echo "============================================================"
+          
       # 16. 审计重要组件
       - name: 审计重要组件
         working-directory: ./openwrt
@@ -670,9 +722,7 @@ jobs:
             - SQM / CAKE
             - WireGuard
             - OpenVPN
-            # >>> MODIFIED
             - TimeControl
-            # <<< MODIFIED
             ### 源码
             **ImmortalWrt：** `openwrt-25.12`
             **ImmortalWrt commit：** `${{ env.SOURCE_COMMIT }}`
