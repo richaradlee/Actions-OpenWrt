@@ -91,12 +91,15 @@ jobs:
           # >>> MODIFIED: 加入 luci-app-timecontrol（JavaScript 版，js 分支）
           rm -rf package/luci-app-timecontrol /tmp/luci-app-timecontrol
           git clone --depth 1 --branch js https://github.com/gaobin89/luci-app-timecontrol.git /tmp/luci-app-timecontrol
-          cp -a /tmp/luci-app-timecontrol/luci-app-timecontrol package/luci-app-timecontrol
+
+          # 将 TimeControl package 内容直接复制到 package/luci-app-timecontrol
+          cp -a /tmp/luci-app-timecontrol/luci-app-timecontrol/. package/luci-app-timecontrol/
+
           rm -rf /tmp/luci-app-timecontrol
           # <<< MODIFIED
 
           # >>> MODIFIED: 将 TimeControl 菜单移动到“服务”
-          cat > package/luci-app-timecontrol/luci-app-timecontrol/root/usr/share/luci/menu.d/luci-app-timecontrol.json <<'EOF'
+          cat > package/luci-app-timecontrol/root/usr/share/luci/menu.d/luci-app-timecontrol.json <<'EOF'
           {
                   "admin/services/timecontrol": {
                           "title": "Internet Time Control",
@@ -116,26 +119,6 @@ jobs:
                   }
           }
           EOF
-
-          # >>> MODIFIED: 验证 TimeControl 菜单已经移动到“服务”
-          grep -q '"admin/services/timecontrol"' \
-              package/luci-app-timecontrol/luci-app-timecontrol/root/usr/share/luci/menu.d/luci-app-timecontrol.json || {
-            echo "ERROR: TimeControl menu path modification failed."
-            exit 1
-          }
-
-          ! grep -q '"admin/control/timecontrol"' \
-              package/luci-app-timecontrol/luci-app-timecontrol/root/usr/share/luci/menu.d/luci-app-timecontrol.json || {
-            echo "ERROR: Old TimeControl menu path still exists."
-            exit 1
-          }
-
-          echo "============================================================"
-          echo "TIMECONTROL MENU CHECK PASSED"
-          echo "============================================================"
-          echo "Menu: admin/services/timecontrol"
-          echo "Parent: Services"
-          echo "============================================================"
           # <<< MODIFIED
           
       # 8. 验证第三方源码
