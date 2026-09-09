@@ -1,18 +1,18 @@
 name: ImmortalWrt x86
 on:
   schedule:
-    - cron: "0 10,18 * * *"
+    - cron: "0 2,10 * * *"
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: github.event_name == 'schedule' || github.event.repository.owner.id == github.event.sender.id    
     permissions:
       contents: write
      # actions: write
-
     name: ImmortalWrt 编译
+    timeout-minutes: 300
     steps:
       # 1. 优化构建空间
       - name: 优化构建空间
@@ -85,42 +85,6 @@ jobs:
           git clone --depth 1 https://github.com/QiuSimons/luci-app-daed.git package/dae
           rm -rf package/feeds/lucky/luci-app-lucky package/lucky
           git clone --depth 1 https://github.com/gdy666/luci-app-lucky.git package/lucky
-          rm -rf package/feeds/luci/luci-theme-argon package/feeds/luci/luci-app-argon-config package/argon package/argon-config
-          git clone --depth 1 --branch master https://github.com/jerrykuku/luci-theme-argon.git package/feeds/luci/luci-theme-argon
-          git clone --depth 1 --branch master https://github.com/jerrykuku/luci-app-argon-config.git package/feeds/luci/luci-app-argon-config
-          # >>> MODIFIED: 加入 luci-app-timecontrol（JavaScript 版，js 分支）
-          rm -rf package/luci-app-timecontrol /tmp/luci-app-timecontrol
-          git clone --depth 1 --branch js https://github.com/gaobin89/luci-app-timecontrol.git /tmp/luci-app-timecontrol
-
-          # 将 TimeControl package 内容直接复制到 package/luci-app-timecontrol
-          cp -a /tmp/luci-app-timecontrol/luci-app-timecontrol/. package/luci-app-timecontrol/
-
-          rm -rf /tmp/luci-app-timecontrol
-          # <<< MODIFIED
-
-          # >>> MODIFIED: 将 TimeControl 菜单移动到“服务”
-          cat > package/luci-app-timecontrol/root/usr/share/luci/menu.d/luci-app-timecontrol.json <<'EOF'
-          {
-                  "admin/services/timecontrol": {
-                          "title": "Internet Time Control",
-                          "order": 90,
-                          "action": {
-                                  "type": "view",
-                                  "path": "timecontrol/rules"
-                          },
-                          "depends": {
-                                  "acl": [
-                                          "luci-app-timecontrol"
-                                  ],
-                                  "uci": {
-                                          "timecontrol": true
-                                  }
-                          }
-                  }
-          }
-          EOF
-          # <<< MODIFIED
-          
       # 8. 验证第三方源码
       - name: 验证第三方软件包源码
         working-directory: ./openwrt
@@ -141,44 +105,9 @@ jobs:
           check_makefile "PassWall2" package/passwall2/luci-app-passwall2/Makefile
           check_makefile "DAED" package/dae/luci-app-daed/Makefile
           check_makefile "Lucky" package/lucky/luci-app-lucky/Makefile
-          check_makefile "Argon" package/feeds/luci/luci-theme-argon/Makefile
-          check_makefile "Argon Config" package/feeds/luci/luci-app-argon-config/Makefile
-          # >>> MODIFIED: 验证 TimeControl 源码及版本
-          check_makefile "TimeControl" package/luci-app-timecontrol/Makefile
-          TIMECONTROL_VERSION="$(grep '^PKG_VERSION:=' package/luci-app-timecontrol/Makefile | cut -d= -f2)"
-          TIMECONTROL_RELEASE="$(grep '^PKG_RELEASE:=' package/luci-app-timecontrol/Makefile | cut -d= -f2)"
-          echo "============================================================"
-          echo "TIMECONTROL SOURCE"
-          echo "============================================================"
-          echo "Branch: js"
-          echo "Version: ${TIMECONTROL_VERSION}"
-          echo "Release: ${TIMECONTROL_RELEASE}"
-          echo "============================================================"
-          echo "TIMECONTROL SOURCE CHECK PASSED"
-          echo "============================================================"
-          echo "TIMECONTROL_VERSION=$TIMECONTROL_VERSION" >> "$GITHUB_ENV"
-          echo "TIMECONTROL_RELEASE=$TIMECONTROL_RELEASE" >> "$GITHUB_ENV"
-          # <<< MODIFIED
-          ARGON_REMOTE="$(git -C package/feeds/luci/luci-theme-argon remote get-url origin)"
-          ARGON_BRANCH="$(git -C package/feeds/luci/luci-theme-argon branch --show-current)"
-          ARGON_COMMIT="$(git -C package/feeds/luci/luci-theme-argon rev-parse HEAD)"
-          ARGON_VERSION="$(git -C package/feeds/luci/luci-theme-argon describe --tags --always 2>/dev/null || echo unknown)"
-          echo "============================================================"
-          echo "ARGON SOURCE"
-          echo "============================================================"
-          echo "Remote: $ARGON_REMOTE"
-          echo "Branch: $ARGON_BRANCH"
-          echo "Commit: $ARGON_COMMIT"
-          echo "Version: $ARGON_VERSION"
-          test "$ARGON_REMOTE" = "https://github.com/jerrykuku/luci-theme-argon.git"
-          test "$ARGON_BRANCH" = "master"
-          grep -q "^PKG_VERSION:=" package/feeds/luci/luci-theme-argon/Makefile
-          echo "ARGON_COMMIT=$ARGON_COMMIT" >> "$GITHUB_ENV"
-          echo "ARGON_VERSION=$ARGON_VERSION" >> "$GITHUB_ENV"
           echo "============================================================"
           echo "THIRD-PARTY SOURCE CHECK PASSED"
           echo "============================================================"
-          
       # 9. 自定义应用配置
       - name: 自定义应用配置
         working-directory: ./openwrt
@@ -293,14 +222,6 @@ jobs:
           CONFIG_PACKAGE_luci-app-vlmcsd=y
           CONFIG_PACKAGE_luci-i18n-vlmcsd-zh-cn=y
           # ============================================================
-          # TimeControl / Client Internet Time Control
-          # ============================================================
-          # >>> MODIFIED: TimeControl 用于按 MAC/时间段控制客户端上网
-          CONFIG_PACKAGE_luci-app-timecontrol=y
-          # TimeControl 用于清理已建立的 IPv4/IPv6 连接
-          CONFIG_PACKAGE_conntrack=y
-          # <<< MODIFIED
-          # ============================================================
           # System / CLI Tools
           # ============================================================
           CONFIG_PACKAGE_curl=y
@@ -343,42 +264,38 @@ jobs:
           # ============================================================
           # System Performance
           # ============================================================
-          CONFIG_PACKAGE_irqbalance=y
           EOF
           cp .config .config.requested
-          
       # 10. 配置 ccache
       - name: 配置 ccache
         working-directory: ./openwrt
         run: |
           set -e
           mkdir -p .ccache
+          export CCACHE_DIR="$PWD/.ccache"
           ccache --set-config=max_size=5G
           ccache --set-config=compression=true
           ccache -z
           ccache -s
-          
       # 11. 恢复下载缓存
       - name: 恢复下载缓存
         uses: actions/cache/restore@v4
         id: cache-dl
         with:
           path: ./openwrt/dl
-          key: ${{ runner.os }}-immortalwrt-dl-v4-${{ env.SOURCE_COMMIT }}
+          key: ${{ runner.os }}-immortalwrt-dl-v5-25.12
           restore-keys: |
-            ${{ runner.os }}-immortalwrt-dl-v4-
+            ${{ runner.os }}-immortalwrt-dl-v5-25.12
             ${{ runner.os }}-immortalwrt-dl-
-            
       # 12. 恢复 ccache 缓存
       - name: 恢复 ccache 缓存
         uses: actions/cache/restore@v4
         id: cache-ccache
         with:
           path: ./openwrt/.ccache
-          key: ${{ runner.os }}-immortalwrt-ccache-v4
+          key: ${{ runner.os }}-immortalwrt-ccache-v5-25.12
           restore-keys: |
             ${{ runner.os }}-immortalwrt-ccache-
-            
       # 13. 恢复工具链缓存
       - name: 恢复工具链缓存
         uses: actions/cache/restore@v4
@@ -387,18 +304,16 @@ jobs:
           path: |
             ./openwrt/staging_dir/host
             ./openwrt/staging_dir/toolchain-*
-          key: ${{ runner.os }}-immortalwrt-staging-v4-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config') }}
+          key: ${{ runner.os }}-immortalwrt-staging-v5-25.12-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config') }}
           restore-keys: |
-            ${{ runner.os }}-immortalwrt-staging-v4-
+            ${{ runner.os }}-immortalwrt-staging-v5-25.12-
             ${{ runner.os }}-immortalwrt-staging-
-            
       # 14. 运行 make defconfig
       - name: 运行 make defconfig
         working-directory: ./openwrt
         run: |
           set -o pipefail
           make defconfig 2>&1 | tee defconfig.log
-          
       # 15. 验证配置
       - name: 验证配置
         working-directory: ./openwrt
@@ -432,7 +347,6 @@ jobs:
             luci-app-daed \
             luci-app-lucky \
             luci-app-rtp2httpd \
-            luci-app-argon-config \
             luci-app-upnp \
             miniupnpd-nftables \
             luci-i18n-upnp-zh-cn \
@@ -453,8 +367,6 @@ jobs:
             socat \
             luci-app-openvpn \
             openvpn-easy-rsa \
-            luci-app-timecontrol \
-            conntrack \
             kmod-wireguard \
             wireguard-tools \
             luci-proto-wireguard \
@@ -466,55 +378,12 @@ jobs:
             check_y "CONFIG_PACKAGE_$P"
           done
           echo
-          # >>> MODIFIED: TimeControl 源码与配置验证
-          echo "===== TimeControl ====="
-          test -f package/luci-app-timecontrol/Makefile || {
-            echo "ERROR: TimeControl Makefile not found."
-            FAILED=1
-          }
-          grep -q "^CONFIG_PACKAGE_luci-app-timecontrol=y$" .config || {
-            echo "ERROR: TimeControl package is not enabled."
-            FAILED=1
-          }
-          grep -q "^CONFIG_PACKAGE_conntrack=y$" .config || {
-            echo "ERROR: conntrack package is not enabled."
-            FAILED=1
-          }
-          echo "TimeControl version: ${TIMECONTROL_VERSION:-unknown}"
-          echo "TimeControl release: ${TIMECONTROL_RELEASE:-unknown}"
-          echo
-          # <<< MODIFIED
-
-          echo "===== Argon 主题 ====="
-          test -f package/feeds/luci/luci-theme-argon/Makefile || {
-            echo "ERROR: Argon theme Makefile not found."
-            FAILED=1
-          }
-          test -f package/feeds/luci/luci-app-argon-config/Makefile || {
-            echo "ERROR: Argon config Makefile not found."
-            FAILED=1
-          }
-          grep -q "^CONFIG_PACKAGE_luci-app-argon-config=y$" .config || {
-            echo "ERROR: Argon config package is not enabled."
-            FAILED=1
-          }
-          grep -R -n "luci-theme-argon" package/feeds/luci/luci-app-argon-config/Makefile >/dev/null || {
-            echo "ERROR: Argon config dependency not found."
-            FAILED=1
-          }
-          echo "Argon commit: ${ARGON_COMMIT}"
-          echo "Argon version: ${ARGON_VERSION}"
-          echo
           echo "===== 已禁用组件 ====="
           check_not_y CONFIG_PACKAGE_luci-app-openvpn-server
           echo
           echo "===== 警告检查 ====="
           if grep -q "Not overriding core package 'luci-app-openclash'" defconfig.log; then
             echo "ERROR: OpenClash override warning."
-            FAILED=1
-          fi
-          if grep -q "package/feeds/luci/luci-app-argon-config/Makefile.*depends on 'luci-theme-argon', which does not exist" defconfig.log; then
-            echo "ERROR: Argon dependency warning."
             FAILED=1
           fi
           if [ "$FAILED" -ne 0 ]; then
@@ -528,7 +397,6 @@ jobs:
           echo "============================================================"
           echo "最终配置验证通过"
           echo "============================================================"
-          
       # 16. 审计重要组件
       - name: 审计重要组件
         working-directory: ./openwrt
@@ -537,10 +405,6 @@ jobs:
           echo "===== ImmortalWrt ====="
           git log -1 --format='commit: %H'
           git log -1 --format='subject: %s'
-          echo
-          echo "===== Argon ====="
-          echo "Commit: ${ARGON_COMMIT}"
-          echo "Version: ${ARGON_VERSION}"
           echo
           echo "===== UPnP / PCP / NAT-PMP ====="
           grep -E '^CONFIG_PACKAGE_(luci-app-upnp|miniupnpd-nftables|luci-i18n-upnp-zh-cn)=' .config || true
@@ -555,13 +419,6 @@ jobs:
           echo "===== WireGuard ====="
           grep -E '^CONFIG_PACKAGE_(kmod-wireguard|wireguard-tools|luci-proto-wireguard)=' .config || true
           echo
-          # >>> MODIFIED: TimeControl 审计
-          echo "===== TimeControl ====="
-          grep -E '^CONFIG_PACKAGE_(luci-app-timecontrol|conntrack)=' .config || true
-          echo "TimeControl version: ${TIMECONTROL_VERSION:-unknown}"
-          echo "TimeControl release: ${TIMECONTROL_RELEASE:-unknown}"
-          echo
-          # <<< MODIFIED
           echo "===== DAED / BTF ====="
           grep -E '^CONFIG_(DEVEL|KERNEL_DEBUG_INFO|KERNEL_DEBUG_INFO_BTF|KERNEL_CGROUPS|KERNEL_CGROUP_BPF|KERNEL_BPF_EVENTS|BPF_TOOLCHAIN_HOST|KERNEL_XDP_SOCKETS)=' .config || true
           echo
@@ -588,31 +445,59 @@ jobs:
           echo "============================================================"
           ccache -s || true
           echo "============================================================"
+          echo "编译前磁盘空间"
+          echo "============================================================"
+          df -h . 
+          echo "============================================================"
+          echo "下载依赖源码包"
+          echo "============================================================"
+          DOWNLOAD_OK=0
+          for i in 1 2 3; do
+            if make -j"$(nproc)" download; then
+              DOWNLOAD_OK=1
+              break
+            fi
+            echo "下载失败，第 ${i} 次重试（等待 10s）..."
+            sleep 10
+          done
+          if [ "$DOWNLOAD_OK" -ne 1 ]; then
+            echo "ERROR: 下载依赖重试 3 次后仍失败"
+            exit 1
+          fi
+          find dl -type f \( -name '*.tmp' -o -name '*.part' -o -name '*.partial' \) -print -delete || true
+          echo "============================================================"
           echo "开始编译 IMMORTALWRT"
           echo "============================================================"
-          make -j"$(nproc)" download
-          make -j"$(nproc)" world V=s 2>&1 | tee build.log
+          if ! make -j"$(nproc)" world 2>&1 | tee build.log; then
+            echo "============================================================"
+            echo "编译失败，build.log 末尾 300 行："
+            echo "============================================================"
+            tail -n 300 build.log
+            exit 1
+          fi
           echo
           echo "============================================================"
           echo "编译后 CCACHE 状态"
           echo "============================================================"
           ccache -s || true
+          echo "============================================================"
+          echo "编译后磁盘空间"
+          echo "============================================================"
+          df -h .
       # 18. 保存下载缓存
       - name: 保存下载缓存
         if: success() && steps.cache-dl.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ./openwrt/dl
-          key: ${{ runner.os }}-immortalwrt-dl-v4-${{ env.SOURCE_COMMIT }}
-
+          key: ${{ runner.os }}-immortalwrt-dl-v5-25.12
       # 19. 保存 ccache 缓存
       - name: 保存 ccache 缓存
         if: success() && steps.cache-ccache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ./openwrt/.ccache
-          key: ${{ runner.os }}-immortalwrt-ccache-v4
-
+          key: ${{ runner.os }}-immortalwrt-ccache-v5-25.12
       # 20. 保存工具链缓存
       - name: 保存工具链缓存
         if: success() && steps.cache-staging.outputs.cache-hit != 'true'
@@ -621,8 +506,7 @@ jobs:
           path: |
             ./openwrt/staging_dir/host
             ./openwrt/staging_dir/toolchain-*
-          key: ${{ runner.os }}-immortalwrt-staging-v4-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config') }}
-
+          key: ${{ runner.os }}-immortalwrt-staging-v5-25.12-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config') }}
       # 21. 收集 EFI 镜像和校验和
       - name: 收集发布文件
         working-directory: ./openwrt
@@ -636,22 +520,25 @@ jobs:
             find bin/targets/x86/64 -maxdepth 1 -type f -print
             exit 1
           fi
-          FILE="ImmortalWrt-x86-64-EFI-${DATE}.img.gz"
+          FILE="ImmortalWrt-x86-64-Generic-${DATE}.img.gz"
           cp "$SRC" "release/$FILE"
           sha256sum "release/$FILE" > release/SHA256SUMS.txt
           cat > release/buildinfo.txt <<EOF
           ImmortalWrt branch: openwrt-25.12
           ImmortalWrt commit: ${SOURCE_COMMIT}
-          Argon version: ${ARGON_VERSION}
-          Argon commit: ${ARGON_COMMIT}
           Target: x86_64 Generic
           Firmware: EFI
           Kernel: 6.12.x
           Build time: ${DATE} Asia/Shanghai
           Firmware file: ${FILE}
           EOF
+          # [优化2-改] RELEASE_TAG 改回按日期生成（每次编译一个新 tag），
+          # 不再用固定 tag。历史版本通过下方"创建 GitHub Release"之后的
+          # "清理旧 Release"步骤维护为固定数量的滚动窗口（保留最近 30 个），
+          # 而不是无限增长，也不是只保留 1 个。
           echo "RELEASE_TAG=ImmortalWrt-25.12-x86_64-${DATE}" >> "$GITHUB_ENV"
           echo "RELEASE_FILE=$FILE" >> "$GITHUB_ENV"
+          echo "BUILD_DATE=$DATE" >> "$GITHUB_ENV"
           echo "============================================================"
           echo "发布文件列表"
           echo "============================================================"
@@ -688,39 +575,59 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: ${{ env.RELEASE_TAG }}
+          name: ImmortalWrt 25.12 x86_64 (${{ env.BUILD_DATE }})
           body: |
             ## ImmortalWrt 25.12 x86_64
             **固件：** `${{ env.RELEASE_FILE }}`
             **目标平台：** x86_64 Generic
             **固件格式：** EFI
-            **编译时间：** 北京时间
+            **编译时间：** ${{ env.BUILD_DATE }} 北京时间
             ### 主要组件
             - OpenClash
             - PassWall2
             - DAED
             - Lucky
             - RTP2HTTPD
-            - Argon Theme
             - SQM / CAKE
             - WireGuard
             - OpenVPN
-            - TimeControl
             ### 源码
             **ImmortalWrt：** `openwrt-25.12`
             **ImmortalWrt commit：** `${{ env.SOURCE_COMMIT }}`
-            **Argon：** `master`
-            **Argon commit：** `${{ env.ARGON_COMMIT }}`
-            > 本 Release 为 GitHub Actions 自动编译发布。
+            > 本 Release 为 GitHub Actions 自动编译发布，仅保留最近 30 个版本，更早的会被自动清理。
           files: |
             ./openwrt/release/${{ env.RELEASE_FILE }}
             ./openwrt/release/SHA256SUMS.txt
             ./openwrt/release/buildinfo.txt
           draft: false
           prerelease: false
+          make_latest: true
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 清理旧 Release
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          KEEP=30
+          gh release list --repo "${{ github.repository }}" --limit 500 --json tagName,createdAt \
+            --jq 'sort_by(.createdAt) | reverse | .[].tagName' > all_tags.txt
+          echo "当前所有 Release（按创建时间新→旧）："
+          cat all_tags.txt
+          TOTAL=$(wc -l < all_tags.txt)
+          echo "共有 $TOTAL 个 Release，保留最近 $KEEP 个"
+          if [ "$TOTAL" -gt "$KEEP" ]; then
+            tail -n +"$((KEEP + 1))" all_tags.txt | while read -r TAG; do
+              [ -z "$TAG" ] && continue
+              echo "删除旧 Release: $TAG"
+              gh release delete "$TAG" --repo "${{ github.repository }}" --yes --cleanup-tag
+            done
+          else
+            echo "无需清理"
+          fi
 
       # 24. 删除旧的 workflow 运行记录
       #- name: 删除旧的 workflow 运行记录
@@ -742,8 +649,6 @@ jobs:
           git log -1 --format='commit: %H'
           git log -1 --format='subject: %s'
           echo "ImmortalWrt commit: ${SOURCE_COMMIT:-unknown}"
-          echo "Argon commit: ${ARGON_COMMIT:-unknown}"
-          echo "Argon version: ${ARGON_VERSION:-unknown}"
           echo "Release: ${RELEASE_TAG:-not-created}"
           echo "Image: ${RELEASE_FILE:-not-created}"
           echo
