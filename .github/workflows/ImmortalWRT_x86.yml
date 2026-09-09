@@ -1,12 +1,12 @@
 name: ImmortalWrt x86
 on:
   schedule:
-    - cron: "0 10,18 * * *"
+    - cron: "0 2,10 * * *"
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: github.event_name == 'schedule' || github.event.repository.owner.id == github.event.sender.id    
     permissions:
       contents: write
@@ -43,7 +43,7 @@ jobs:
           sudo -E apt-get update
           sudo -E apt-get install -y ack asciidoc autoconf automake autopoint binutils bison build-essential bzip2 ccache clang cmake cpio curl device-tree-compiler flex gawk gettext git gperf help2man intltool libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev libmpfr-dev libncurses5-dev libncursesw5-dev libpython3-dev libreadline-dev libssl-dev libtool llvm make ninja-build patch pkgconf python3 python3-pyelftools python3-setuptools rsync scons squashfs-tools subversion swig texinfo uglifyjs unzip wget xmlto xxd zlib1g-dev scdoc
           sudo -E timedatectl set-timezone "Asia/Shanghai"
-      # 4. 克隆 ImmortalWrt 25.12 源码
+      # 4. 克隆 ImmortalWrt 源码
       - name: 克隆 ImmortalWrt 源码
         env:
           REPO_URL: https://github.com/immortalwrt/immortalwrt
@@ -59,23 +59,6 @@ jobs:
           git log -1 --format='commit: %H'
           git log -1 --format='subject: %s'
           echo "SOURCE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
-
-      - name: 检查源码是否有更新
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FIXED_TAG: ImmortalWrt-25.12-x86_64-latest
-        run: |
-          set +e
-          LAST_COMMIT="$(gh release view "$FIXED_TAG" --repo "${{ github.repository }}" --json body -q .body 2>/dev/null | grep -oE 'ImmortalWrt commit: [0-9a-f]+' | awk '{print $3}')"
-          set -e
-          echo "上次编译 commit: ${LAST_COMMIT:-<none>}"
-          echo "本次源码 commit: ${SOURCE_COMMIT}"
-          if [ -n "$LAST_COMMIT" ] && [ "$LAST_COMMIT" = "$SOURCE_COMMIT" ]; then
-            echo "SKIP_BUILD=true" >> "$GITHUB_ENV"
-            echo "源码无变化，跳过本次编译。"
-          else
-            echo "SKIP_BUILD=false" >> "$GITHUB_ENV"
-          fi
 
       # 5. 配置 feeds
       - name: 配置上游 feeds
@@ -288,7 +271,6 @@ jobs:
           # ============================================================
           # System Performance
           # ============================================================
-          CONFIG_PACKAGE_irqbalance=y
           EOF
           cp .config .config.requested
       # 10. 配置 ccache
@@ -309,9 +291,9 @@ jobs:
         id: cache-dl
         with:
           path: ./openwrt/dl
-          key: ${{ runner.os }}-immortalwrt-dl-v4-${{ env.SOURCE_COMMIT }}
+          key: ${{ runner.os }}-immortalwrt-dl-v5-25.12
           restore-keys: |
-            ${{ runner.os }}-immortalwrt-dl-v4-
+            ${{ runner.os }}-immortalwrt-dl-v5-25.12
             ${{ runner.os }}-immortalwrt-dl-
       # 12. 恢复 ccache 缓存
       - name: 恢复 ccache 缓存
@@ -320,7 +302,7 @@ jobs:
         id: cache-ccache
         with:
           path: ./openwrt/.ccache
-          key: ${{ runner.os }}-immortalwrt-ccache-v4
+          key: ${{ runner.os }}-immortalwrt-ccache-v5-25.12
           restore-keys: |
             ${{ runner.os }}-immortalwrt-ccache-
       # 13. 恢复工具链缓存
@@ -332,9 +314,9 @@ jobs:
           path: |
             ./openwrt/staging_dir/host
             ./openwrt/staging_dir/toolchain-*
-          key: ${{ runner.os }}-immortalwrt-staging-v4-${{ hashFiles('openwrt/.config') }}
+          key: ${{ runner.os }}-immortalwrt-staging-v5-25.12-${{ hashFiles('openwrt/.config') }}
           restore-keys: |
-            ${{ runner.os }}-immortalwrt-staging-v4-
+            ${{ runner.os }}-immortalwrt-staging-v5-25.12-
             ${{ runner.os }}-immortalwrt-staging-
       # 14. 运行 make defconfig
       - name: 运行 make defconfig
@@ -481,9 +463,6 @@ jobs:
           echo "============================================================"
           df -h .
 
-          # [优化A] 下载阶段增加重试：上游/镜像服务器偶发超时或连接重置，
-          # make download 是幂等操作，重试成本很低；不重试的话一次网络抽风
-          # 就会让前面攒的 ccache、工具链缓存全部白费，只能等下一次定时任务。
           echo "============================================================"
           echo "下载依赖源码包"
           echo "============================================================"
@@ -500,12 +479,7 @@ jobs:
             echo "ERROR: 下载依赖重试 3 次后仍失败"
             exit 1
           fi
-          # 清理掉体积异常小（<1KB）的下载文件，避免下载中断留下的残包被当成完整包使用
-          find dl -type f -size -1024c -print -delete || true
-
-          # [优化B] 正常编译不再全程开启 V=s：world 阶段命令输出量级是几十万行，
-          # 平时用不到却拖慢 IO、占日志存储。失败时不重跑，直接打印 build.log
-          # 尾部内容——大多数编译错误都会在最后几十到几百行里体现。
+          find dl -type f \( -name '*.tmp' -o -name '*.part' -o -name '*.partial' \) -print -delete || true
           echo "============================================================"
           echo "开始编译 IMMORTALWRT"
           echo "============================================================"
@@ -516,7 +490,6 @@ jobs:
             tail -n 300 build.log
             exit 1
           fi
-
           echo
           echo "============================================================"
           echo "编译后 CCACHE 状态"
@@ -532,14 +505,14 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ./openwrt/dl
-          key: ${{ runner.os }}-immortalwrt-dl-v4-${{ env.SOURCE_COMMIT }}
+          key: ${{ runner.os }}-immortalwrt-dl-v5-25.12${{ env.SOURCE_COMMIT }}
       # 19. 保存 ccache 缓存
       - name: 保存 ccache 缓存
         if: env.SKIP_BUILD != 'true' && success() && steps.cache-ccache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: ./openwrt/.ccache
-          key: ${{ runner.os }}-immortalwrt-ccache-v4
+          key: ${{ runner.os }}-immortalwrt-ccache-v5-25.12
       # 20. 保存工具链缓存
       - name: 保存工具链缓存
         if: env.SKIP_BUILD != 'true' && success() && steps.cache-staging.outputs.cache-hit != 'true'
@@ -548,7 +521,7 @@ jobs:
           path: |
             ./openwrt/staging_dir/host
             ./openwrt/staging_dir/toolchain-*
-          key: ${{ runner.os }}-immortalwrt-staging-v4-${{ hashFiles('openwrt/.config') }}
+          key: ${{ runner.os }}-immortalwrt-staging-v5-25.12-${{ hashFiles('openwrt/.config') }}
       # 21. 收集 EFI 镜像和校验和
       - name: 收集发布文件
         if: env.SKIP_BUILD != 'true'
@@ -575,9 +548,8 @@ jobs:
           Build time: ${DATE} Asia/Shanghai
           Firmware file: ${FILE}
           EOF
-          # [优化2] RELEASE_TAG 改为固定值（见下方创建 Release 步骤），
-          # 这里不再用日期生成 tag，避免 tag/Release 数量无限增长。
-          echo "RELEASE_TAG=ImmortalWrt-25.12-x86_64-latest" >> "$GITHUB_ENV"
+
+          echo "RELEASE_TAG=ImmortalWrt-25.12-x86_64-${DATE}" >> "$GITHUB_ENV"
           echo "RELEASE_FILE=$FILE" >> "$GITHUB_ENV"
           echo "BUILD_DATE=$DATE" >> "$GITHUB_ENV"
           echo "============================================================"
@@ -611,7 +583,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      # 23. 创建 / 更新 GitHub Release  
+      # 23. 创建 GitHub Release
       - name: 创建 GitHub Release
         if: env.SKIP_BUILD != 'true' && success()
         uses: softprops/action-gh-release@v2
@@ -636,7 +608,7 @@ jobs:
             ### 源码
             **ImmortalWrt：** `openwrt-25.12`
             **ImmortalWrt commit：** `${{ env.SOURCE_COMMIT }}`
-            > 本 Release 为 GitHub Actions 自动编译发布，固定 tag 滚动更新，不保留历史版本。
+            > 本 Release 为 GitHub Actions 自动编译发布，仅保留最近 30 个版本，更早的会被自动清理。
           files: |
             ./openwrt/release/${{ env.RELEASE_FILE }}
             ./openwrt/release/SHA256SUMS.txt
@@ -647,6 +619,29 @@ jobs:
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 清理旧 Release（仅保留最近 30 个）
+        if: env.SKIP_BUILD != 'true' && success()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          KEEP=30
+          gh release list --repo "${{ github.repository }}" --limit 500 --json tagName,createdAt \
+            --jq 'sort_by(.createdAt) | reverse | .[].tagName' > all_tags.txt
+          echo "当前所有 Release（按创建时间新→旧）："
+          cat all_tags.txt
+          TOTAL=$(wc -l < all_tags.txt)
+          echo "共有 $TOTAL 个 Release，保留最近 $KEEP 个"
+          if [ "$TOTAL" -gt "$KEEP" ]; then
+            tail -n +"$((KEEP + 1))" all_tags.txt | while read -r TAG; do
+              [ -z "$TAG" ] && continue
+              echo "删除旧 Release: $TAG"
+              gh release delete "$TAG" --repo "${{ github.repository }}" --yes --cleanup-tag
+            done
+          else
+            echo "无需清理"
+          fi
 
       # 24. 删除旧的 workflow 运行记录
       #- name: 删除旧的 workflow 运行记录
