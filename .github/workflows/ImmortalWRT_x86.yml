@@ -85,6 +85,35 @@ jobs:
           git clone --depth 1 https://github.com/QiuSimons/luci-app-daed.git package/dae
           rm -rf package/feeds/lucky/luci-app-lucky package/lucky
           git clone --depth 1 https://github.com/gdy666/luci-app-lucky.git package/lucky
+          # >>> MODIFIED: 加入 luci-app-timecontrol（JavaScript 版，js 分支）
+          rm -rf package/luci-app-timecontrol /tmp/luci-app-timecontrol
+          git clone --depth 1 --branch js https://github.com/gaobin89/luci-app-timecontrol.git /tmp/luci-app-timecontrol
+          # 将 TimeControl package 内容直接复制到 package/luci-app-timecontrol
+          cp -a /tmp/luci-app-timecontrol/luci-app-timecontrol/. package/luci-app-timecontrol/
+          rm -rf /tmp/luci-app-timecontrol
+          # <<< MODIFIED
+          # >>> MODIFIED: 将 TimeControl 菜单移动到“服务”
+          cat > package/luci-app-timecontrol/root/usr/share/luci/menu.d/luci-app-timecontrol.json <<'EOF'
+          {
+                  "admin/services/timecontrol": {
+                          "title": "Internet Time Control",
+                          "order": 90,
+                          "action": {
+                                  "type": "view",
+                                  "path": "timecontrol/rules"
+                          },
+                          "depends": {
+                                  "acl": [
+                                          "luci-app-timecontrol"
+                                  ],
+                                  "uci": {
+                                          "timecontrol": true
+                                  }
+                          }
+                  }
+          }
+          EOF
+          # <<< MODIFIED          
       # 8. 验证第三方源码
       - name: 验证第三方软件包源码
         working-directory: ./openwrt
@@ -105,6 +134,20 @@ jobs:
           check_makefile "PassWall2" package/passwall2/luci-app-passwall2/Makefile
           check_makefile "DAED" package/dae/luci-app-daed/Makefile
           check_makefile "Lucky" package/lucky/luci-app-lucky/Makefile
+          check_makefile "TimeControl" package/luci-app-timecontrol/Makefile
+          TIMECONTROL_VERSION="$(grep '^PKG_VERSION:=' package/luci-app-timecontrol/Makefile | cut -d= -f2)"
+          TIMECONTROL_RELEASE="$(grep '^PKG_RELEASE:=' package/luci-app-timecontrol/Makefile | cut -d= -f2)"
+          echo "============================================================"
+          echo "TIMECONTROL SOURCE"
+          echo "============================================================"
+          echo "Branch: js"
+          echo "Version: ${TIMECONTROL_VERSION}"
+          echo "Release: ${TIMECONTROL_RELEASE}"
+          echo "============================================================"
+          echo "TIMECONTROL SOURCE CHECK PASSED"
+          echo "============================================================"
+          echo "TIMECONTROL_VERSION=$TIMECONTROL_VERSION" >> "$GITHUB_ENV"
+          echo "TIMECONTROL_RELEASE=$TIMECONTROL_RELEASE" >> "$GITHUB_ENV"
           echo "============================================================"
           echo "THIRD-PARTY SOURCE CHECK PASSED"
           echo "============================================================"
@@ -221,6 +264,11 @@ jobs:
           CONFIG_PACKAGE_vlmcsd=y
           CONFIG_PACKAGE_luci-app-vlmcsd=y
           CONFIG_PACKAGE_luci-i18n-vlmcsd-zh-cn=y
+          # ============================================================
+          # TimeControl / Client Internet Time Control
+          # ============================================================
+          CONFIG_PACKAGE_luci-app-timecontrol=y
+          CONFIG_PACKAGE_conntrack=y          
           # ============================================================
           # System / CLI Tools
           # ============================================================
@@ -367,6 +415,8 @@ jobs:
             socat \
             luci-app-openvpn \
             openvpn-easy-rsa \
+            luci-app-timecontrol \
+            conntrack \
             kmod-wireguard \
             wireguard-tools \
             luci-proto-wireguard \
@@ -377,6 +427,23 @@ jobs:
             fi
             check_y "CONFIG_PACKAGE_$P"
           done
+          echo
+          echo "===== TimeControl ====="
+          test -f package/luci-app-timecontrol/Makefile || {
+            echo "ERROR: TimeControl Makefile not found."
+            FAILED=1
+          }
+          grep -q "^CONFIG_PACKAGE_luci-app-timecontrol=y$" .config || {
+            echo "ERROR: TimeControl package is not enabled."
+            FAILED=1
+          }
+          grep -q "^CONFIG_PACKAGE_conntrack=y$" .config || {
+            echo "ERROR: conntrack package is not enabled."
+            FAILED=1
+          }
+          echo "TimeControl version: ${TIMECONTROL_VERSION:-unknown}"
+          echo "TimeControl release: ${TIMECONTROL_RELEASE:-unknown}"
+          echo
           echo
           echo "===== 已禁用组件 ====="
           check_not_y CONFIG_PACKAGE_luci-app-openvpn-server
@@ -421,6 +488,11 @@ jobs:
           echo
           echo "===== DAED / BTF ====="
           grep -E '^CONFIG_(DEVEL|KERNEL_DEBUG_INFO|KERNEL_DEBUG_INFO_BTF|KERNEL_CGROUPS|KERNEL_CGROUP_BPF|KERNEL_BPF_EVENTS|BPF_TOOLCHAIN_HOST|KERNEL_XDP_SOCKETS)=' .config || true
+          echo
+          echo "===== TimeControl ====="
+          grep -E '^CONFIG_PACKAGE_(luci-app-timecontrol|conntrack)=' .config || true
+          echo "TimeControl version: ${TIMECONTROL_VERSION:-unknown}"
+          echo "TimeControl release: ${TIMECONTROL_RELEASE:-unknown}"
           echo
           echo "===== 缓存 ====="
           echo "CCACHE_DIR=$PWD/.ccache"
@@ -591,10 +663,10 @@ jobs:
             - SQM / CAKE
             - WireGuard
             - OpenVPN
+            - TimeControl
             ### 源码
             **ImmortalWrt：** `openwrt-25.12`
             **ImmortalWrt commit：** `${{ env.SOURCE_COMMIT }}`
-            > 本 Release 为 GitHub Actions 自动编译发布，仅保留最近 30 个版本，更早的会被自动清理。
           files: |
             ./openwrt/release/${{ env.RELEASE_FILE }}
             ./openwrt/release/SHA256SUMS.txt
