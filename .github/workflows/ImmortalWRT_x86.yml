@@ -678,6 +678,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # 24. 清理旧 Release（保留最近 30 个）
       - name: 清理旧 Release
         if: success()
         env:
@@ -685,23 +686,21 @@ jobs:
         run: |
           set -e
           KEEP=30
-          gh release list --repo "${{ github.repository }}" --limit 500 --json tagName,createdAt \
+          REPO="${{ github.repository }}"
+          gh release list \
+            --repo "$REPO" \
+            --limit 500 \
+            --json tagName,createdAt \
             --jq 'sort_by(.createdAt) | reverse | .[].tagName' > all_tags.txt
-          echo "当前所有 Release（按创建时间新→旧）："
-          cat all_tags.txt
-          TOTAL=$(wc -l < all_tags.txt)
-          echo "共有 $TOTAL 个 Release，保留最近 $KEEP 个"
-          if [ "$TOTAL" -gt "$KEEP" ]; then
-            tail -n +"$((KEEP + 1))" all_tags.txt | while read -r TAG; do
-              [ -z "$TAG" ] && continue
-              echo "删除旧 Release: $TAG"
-              gh release delete "$TAG" --repo "${{ github.repository }}" --yes --cleanup-tag
-            done
-          else
-            echo "无需清理"
-          fi
-
-      # 24. 删除旧的 workflow 运行记录
+          tail -n +"$((KEEP + 1))" all_tags.txt | while read -r TAG; do
+            [ -z "$TAG" ] && continue
+            [ "$TAG" = "${RELEASE_TAG:-}" ] && continue
+            echo "删除旧 Release: $TAG"
+            gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag
+          done
+          echo "Release 清理完成"
+          
+      # 25. 删除旧的 workflow 运行记录
       #- name: 删除旧的 workflow 运行记录
       #  if: always()
       #  uses: Mattraks/delete-workflow-runs@v2
