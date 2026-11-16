@@ -350,10 +350,12 @@ jobs:
         uses: actions/cache/restore@v4
         id: cache-staging
         with:
+          # v7：增加 target-x86_64_musl/host，并使旧 staging 缓存失效。
           path: |
             ./openwrt/staging_dir/host
             ./openwrt/staging_dir/toolchain-*
-          key: ${{ runner.os }}-immortalwrt-staging-v6-25.12-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config.requested') }}
+            ./openwrt/staging_dir/target-x86_64_musl/host
+          key: ${{ runner.os }}-immortalwrt-staging-v7-25.12-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config.requested') }}
       # 14. 运行 make defconfig
       - name: 运行 make defconfig
         working-directory: ./openwrt
@@ -531,7 +533,8 @@ jobs:
           key: ${{ runner.os }}-immortalwrt-dl-v6-25.12-${{ github.run_id }}-${{ github.run_attempt }}
 
       # 19. Rust Host 单线程诊断编译
-      # 先单独编译 Rust Host，保留完整 V=s 日志；若失败，后续诊断上传仍会执行。
+      # 关键修复：先安装完整目标工具链，再显式验证 GCC/G++ 并设置 PATH。
+      # 直接调用 rust/host/compile 会绕过其所需的 toolchain/install 前置依赖。
       - name: Rust Host 诊断编译
         id: rust-host
         working-directory: ./openwrt
@@ -540,9 +543,46 @@ jobs:
           CCACHE_DIR: ${{ github.workspace }}/openwrt/.ccache
           FORCE_UNSAFE_CONFIGURE: '1'
         run: |
-          set -o pipefail
+          set -euo pipefail
           echo "============================================================"
-          echo "Rust Host 单线程详细诊断"
+          echo "第一阶段：安装 OpenWrt 目标工具链"
+          echo "============================================================"
+          if ! make -j"$(nproc)" V=s toolchain/install 2>&1 | tee toolchain-install-debug.log; then
+            echo "ERROR: toolchain/install failed."
+            tail -n 200 toolchain-install-debug.log || true
+            exit 1
+          fi
+
+          echo "============================================================"
+          echo "第二阶段：定位并验证交叉编译器"
+          echo "============================================================"
+          TOOLCHAIN_GCC="$(find staging_dir -name 'x86_64-openwrt-linux-musl-gcc' \( -type f -o -type l \) -print -quit)"
+          if [ -z "$TOOLCHAIN_GCC" ] || [ ! -x "$TOOLCHAIN_GCC" ]; then
+            echo "ERROR: x86_64-openwrt-linux-musl-gcc was not generated."
+            find staging_dir -name '*openwrt*musl*gcc*' -print || true
+            find staging_dir -maxdepth 2 -type d -name 'toolchain-*' -print || true
+            exit 1
+          fi
+
+          TOOLCHAIN_BIN="$(dirname "$TOOLCHAIN_GCC")"
+          TOOLCHAIN_GXX="$TOOLCHAIN_BIN/x86_64-openwrt-linux-musl-g++"
+          if [ ! -x "$TOOLCHAIN_GXX" ]; then
+            echo "ERROR: matching cross G++ is missing: $TOOLCHAIN_GXX"
+            ls -lah "$TOOLCHAIN_BIN" || true
+            exit 1
+          fi
+
+          export PATH="$TOOLCHAIN_BIN:$PWD/staging_dir/host/bin:$PATH"
+          echo "$TOOLCHAIN_BIN" >> "$GITHUB_PATH"
+          echo "$PWD/staging_dir/host/bin" >> "$GITHUB_PATH"
+          echo "GCC: $(command -v x86_64-openwrt-linux-musl-gcc)"
+          x86_64-openwrt-linux-musl-gcc --version
+          echo "G++: $(command -v x86_64-openwrt-linux-musl-g++)"
+          x86_64-openwrt-linux-musl-g++ --version
+          echo "PATH=$PATH"
+
+          echo "============================================================"
+          echo "第三阶段：Rust Host 单线程编译"
           echo "============================================================"
           make -j1 V=s package/feeds/packages/rust/host/compile 2>&1 | tee rust-host-debug.log
 
@@ -601,10 +641,12 @@ jobs:
         if: success() && steps.cache-staging.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
+          # 与恢复步骤保持一致；v7 同时保存 Rust 使用的 target host staging。
           path: |
             ./openwrt/staging_dir/host
             ./openwrt/staging_dir/toolchain-*
-          key: ${{ runner.os }}-immortalwrt-staging-v6-25.12-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config.requested') }}
+            ./openwrt/staging_dir/target-x86_64_musl/host
+          key: ${{ runner.os }}-immortalwrt-staging-v7-25.12-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config.requested') }}
       # 23. 收集 EFI 镜像和校验和
       - name: 收集发布文件
         working-directory: ./openwrt
@@ -662,6 +704,7 @@ jobs:
             ./openwrt/.config
             ./openwrt/.config.requested
             ./openwrt/defconfig.log
+            ./openwrt/toolchain-install-debug.log
             ./openwrt/build.log
             ./openwrt/rust-host-debug.log
             ./openwrt/release/buildinfo.txt
