@@ -627,6 +627,53 @@ jobs:
           echo "============================================================"
           df -h .
 
+
+      # Rust Host 定点诊断：仅在完整编译失败后执行
+      - name: Rust Host 详细错误诊断
+        if: failure()
+        working-directory: ./openwrt
+        shell: bash
+        run: |
+          set +e
+
+          echo "============================================================"
+          echo "Rust Host 单线程详细诊断"
+          echo "============================================================"
+
+          echo "当前磁盘空间："
+          df -h .
+
+          echo "当前内存状态："
+          free -h
+
+          echo "开始单独编译 Rust Host："
+          make package/feeds/packages/rust/host/compile -j1 V=s 2>&1 | tee rust-host-debug.log
+
+          echo "Rust Host 诊断退出码：${PIPESTATUS[0]}"
+
+          echo "============================================================"
+          echo "Rust Host 错误摘要"
+          echo "============================================================"
+
+          grep -n -i -E \
+            'error:|error\\[|failed|killed|signal 9|out of memory|cannot find|undefined reference|linker' \
+            rust-host-debug.log | tail -n 150 || true
+
+      # 无论成功或失败，都上传诊断文件
+      - name: 上传 Rust Host 诊断日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ImmortalWrt-Rust-Host-Diagnostics
+          path: |
+            ./openwrt/build.log
+            ./openwrt/rust-host-debug.log
+            ./openwrt/defconfig.log
+            ./openwrt/.config
+            ./openwrt/.config.requested
+          if-no-files-found: warn
+          retention-days: 14
+
       # 20. 保存 ccache：下载成功即可保存已有对象文件，编译中断也不丢弃增量。
       - name: 保存 ccache 缓存
         if: ${{ env.SKIP_BUILD != 'true' && !cancelled() && steps.download-deps.outcome == 'success' && steps.cache-ccache.outputs.cache-hit != 'true' }}
