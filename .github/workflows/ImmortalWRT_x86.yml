@@ -214,6 +214,8 @@ jobs:
           CONFIG_PACKAGE_luci-app-openclash=y
           # ============================================================
           # DAED / BPF / XDP
+          # 本次保留 B 方案原有 BPF/BTF 配置，不将其认定为 Rust host 失败的直接原因。
+          # 若缓存修复后仍失败，再依据 build.log 中 Rust 的首个实际错误进行单变量排查。
           # ============================================================
           CONFIG_DEVEL=y
           CONFIG_KERNEL_DEBUG_INFO=y
@@ -349,13 +351,16 @@ jobs:
         uses: actions/cache/restore@v4
         id: cache-staging
         with:
+          # 缓存目录说明：host 为主机侧构建工具，hostpkg 为主机侧软件包 staging。
+          # 原 B 方案遗漏 hostpkg，本次补齐；工具链目录限定为当前 x86_64 GCC。
           path: |
             ./openwrt/staging_dir/host
-            ./openwrt/staging_dir/toolchain-*
-          key: ${{ runner.os }}-immortalwrt-staging-v5-25.12-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config') }}
-          restore-keys: |
-            ${{ runner.os }}-immortalwrt-staging-v5-25.12-
-            ${{ runner.os }}-immortalwrt-staging-
+            ./openwrt/staging_dir/hostpkg
+            ./openwrt/staging_dir/toolchain-x86_64_gcc-*
+          # 缓存版本升级为 v6，避免继续命中旧 v5 缓存。
+          # key 同时绑定源码 commit 与 .config 哈希，只有完全匹配才恢复。
+          # 有意删除 restore-keys，避免回退恢复其他 commit / 配置的旧工具链产物。
+          key: ${{ runner.os }}-immortalwrt-staging-v6-25.12-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config') }}
       # 14. 运行 make defconfig
       - name: 运行 make defconfig
         working-directory: ./openwrt
@@ -540,6 +545,7 @@ jobs:
           echo "============================================================"
           echo "开始编译 IMMORTALWRT"
           echo "============================================================"
+          # 保留 B 方案原有并行度；只有日志明确出现 OOM / Killed / SIGKILL 时才考虑降低 -j。
           if ! make -j"$(nproc)" world 2>&1 | tee build.log; then
             echo "============================================================"
             echo "编译失败，build.log 末尾 300 行："
@@ -575,10 +581,12 @@ jobs:
         if: success() && steps.cache-staging.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
+          # 必须与第 13 步恢复缓存的目录及 key 完全一致。
           path: |
             ./openwrt/staging_dir/host
-            ./openwrt/staging_dir/toolchain-*
-          key: ${{ runner.os }}-immortalwrt-staging-v5-25.12-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config') }}
+            ./openwrt/staging_dir/hostpkg
+            ./openwrt/staging_dir/toolchain-x86_64_gcc-*
+          key: ${{ runner.os }}-immortalwrt-staging-v6-25.12-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config') }}
       # 21. 收集 EFI 镜像和校验和
       - name: 收集发布文件
         working-directory: ./openwrt
@@ -650,7 +658,7 @@ jobs:
           name: ImmortalWrt 25.12 x86_64 (${{ env.BUILD_DATE }})
           body: |
             ## ImmortalWrt 25.12 x86_64
-            **固件：** `${{ env.RELEASE_FILE }}`
+            **固件：** \`${{ env.RELEASE_FILE }}\`
             **目标平台：** x86_64 Generic
             **固件格式：** EFI
             **编译时间：** ${{ env.BUILD_DATE }} 北京时间
@@ -665,8 +673,8 @@ jobs:
             - OpenVPN
             - TimeControl
             ### 源码
-            **ImmortalWrt：** `openwrt-25.12`
-            **ImmortalWrt commit：** `${{ env.SOURCE_COMMIT }}`
+            **ImmortalWrt：** \`openwrt-25.12\`
+            **ImmortalWrt commit：** \`${{ env.SOURCE_COMMIT }}\`
           files: |
             ./openwrt/release/${{ env.RELEASE_FILE }}
             ./openwrt/release/SHA256SUMS.txt
@@ -699,7 +707,7 @@ jobs:
             gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag
           done
           echo "Release 清理完成"
-          
+
       # 25. 删除旧的 workflow 运行记录
       #- name: 删除旧的 workflow 运行记录
       #  if: always()
@@ -725,4 +733,4 @@ jobs:
           echo
           echo "CCache:"
           ccache -s || true
-          echo "################################################################"
+          echo "################################################################"          
