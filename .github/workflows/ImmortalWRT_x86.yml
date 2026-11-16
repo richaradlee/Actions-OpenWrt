@@ -532,61 +532,7 @@ jobs:
           path: ./openwrt/dl
           key: ${{ runner.os }}-immortalwrt-dl-v6-25.12-${{ github.run_id }}-${{ github.run_attempt }}
 
-      # 19. Rust Host 单线程诊断编译
-      # 关键修复：先安装完整目标工具链，再显式验证 GCC/G++ 并设置 PATH。
-      # 直接调用 rust/host/compile 会绕过其所需的 toolchain/install 前置依赖。
-      - name: Rust Host 诊断编译
-        id: rust-host
-        working-directory: ./openwrt
-        env:
-          TZ: Asia/Shanghai
-          CCACHE_DIR: ${{ github.workspace }}/openwrt/.ccache
-          FORCE_UNSAFE_CONFIGURE: '1'
-        run: |
-          set -euo pipefail
-          echo "============================================================"
-          echo "第一阶段：安装 OpenWrt 目标工具链"
-          echo "============================================================"
-          if ! make -j"$(nproc)" V=s toolchain/install 2>&1 | tee toolchain-install-debug.log; then
-            echo "ERROR: toolchain/install failed."
-            tail -n 200 toolchain-install-debug.log || true
-            exit 1
-          fi
-
-          echo "============================================================"
-          echo "第二阶段：定位并验证交叉编译器"
-          echo "============================================================"
-          TOOLCHAIN_GCC="$(find staging_dir -name 'x86_64-openwrt-linux-musl-gcc' \( -type f -o -type l \) -print -quit)"
-          if [ -z "$TOOLCHAIN_GCC" ] || [ ! -x "$TOOLCHAIN_GCC" ]; then
-            echo "ERROR: x86_64-openwrt-linux-musl-gcc was not generated."
-            find staging_dir -name '*openwrt*musl*gcc*' -print || true
-            find staging_dir -maxdepth 2 -type d -name 'toolchain-*' -print || true
-            exit 1
-          fi
-
-          TOOLCHAIN_BIN="$(dirname "$TOOLCHAIN_GCC")"
-          TOOLCHAIN_GXX="$TOOLCHAIN_BIN/x86_64-openwrt-linux-musl-g++"
-          if [ ! -x "$TOOLCHAIN_GXX" ]; then
-            echo "ERROR: matching cross G++ is missing: $TOOLCHAIN_GXX"
-            ls -lah "$TOOLCHAIN_BIN" || true
-            exit 1
-          fi
-
-          export PATH="$TOOLCHAIN_BIN:$PWD/staging_dir/host/bin:$PATH"
-          echo "$TOOLCHAIN_BIN" >> "$GITHUB_PATH"
-          echo "$PWD/staging_dir/host/bin" >> "$GITHUB_PATH"
-          echo "GCC: $(command -v x86_64-openwrt-linux-musl-gcc)"
-          x86_64-openwrt-linux-musl-gcc --version
-          echo "G++: $(command -v x86_64-openwrt-linux-musl-g++)"
-          x86_64-openwrt-linux-musl-g++ --version
-          echo "PATH=$PATH"
-
-          echo "============================================================"
-          echo "第三阶段：Rust Host 单线程编译"
-          echo "============================================================"
-          make -j1 V=s package/feeds/packages/rust/host/compile 2>&1 | tee rust-host-debug.log
-
-      # 20. 编译固件
+      # 19. 编译固件
       - name: 编译 ImmortalWrt
         id: compile-firmware
         if: success()
@@ -628,7 +574,7 @@ jobs:
           echo "============================================================"
           df -h .
 
-      # 21. 保存 ccache：编译失败也保存已生成的有效对象文件
+      # 20. 保存 ccache：编译失败也保存已生成的有效对象文件
       - name: 保存 ccache 缓存
         if: ${{ !cancelled() && steps.download-deps.outcome == 'success' && steps.cache-ccache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
@@ -636,7 +582,7 @@ jobs:
           path: ./openwrt/.ccache
           key: ${{ runner.os }}-immortalwrt-ccache-v6-25.12-${{ github.run_id }}-${{ github.run_attempt }}
 
-      # 22. 保存工具链缓存：仅完整构建成功后保存，避免缓存不完整 staging 产物
+      # 21. 保存工具链缓存：仅完整构建成功后保存，避免缓存不完整 staging 产物
       - name: 保存工具链缓存
         if: success() && steps.cache-staging.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
@@ -647,7 +593,7 @@ jobs:
             ./openwrt/staging_dir/toolchain-*
             ./openwrt/staging_dir/target-x86_64_musl/host
           key: ${{ runner.os }}-immortalwrt-staging-v7-25.12-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config.requested') }}
-      # 23. 收集 EFI 镜像和校验和
+      # 22. 收集 EFI 镜像和校验和
       - name: 收集发布文件
         working-directory: ./openwrt
         run: |
@@ -683,7 +629,7 @@ jobs:
           echo "发布文件列表"
           echo "============================================================"
           ls -lh release/
-      # 24. 上传固件和诊断信息
+      # 23. 上传固件和诊断信息
       - name: 上传固件
         uses: actions/upload-artifact@v4
         with:
@@ -704,14 +650,12 @@ jobs:
             ./openwrt/.config
             ./openwrt/.config.requested
             ./openwrt/defconfig.log
-            ./openwrt/toolchain-install-debug.log
             ./openwrt/build.log
-            ./openwrt/rust-host-debug.log
             ./openwrt/release/buildinfo.txt
           if-no-files-found: warn
           retention-days: 14
  
-      # 25. 创建 GitHub Release
+      # 24. 创建 GitHub Release
       - name: 创建 GitHub Release
         if: success()
         uses: softprops/action-gh-release@v2
