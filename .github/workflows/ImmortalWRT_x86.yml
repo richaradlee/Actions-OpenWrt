@@ -3,7 +3,7 @@ on:
   schedule:
     - cron: "0 10 * * *"
   workflow_dispatch:
-
+ 
 jobs:
   build:
     runs-on: ubuntu-24.04
@@ -26,11 +26,11 @@ jobs:
           remove-haskell: 'true'
           remove-codeql: 'true'
           remove-docker-images: 'true'
-
+ 
       # 2. 检出 workflow 仓库
       - name: 检出代码
         uses: actions/checkout@v4
-
+ 
       # 3. 安装编译依赖
       - name: 安装编译依赖
         env:
@@ -214,8 +214,6 @@ jobs:
           CONFIG_PACKAGE_luci-app-openclash=y
           # ============================================================
           # DAED / BPF / XDP
-          # 本次保留 B 方案原有 BPF/BTF 配置，不将其认定为 Rust host 失败的直接原因。
-          # 若缓存修复后仍失败，再依据 build.log 中 Rust 的首个实际错误进行单变量排查。
           # ============================================================
           CONFIG_DEVEL=y
           CONFIG_KERNEL_DEBUG_INFO=y
@@ -333,9 +331,9 @@ jobs:
         id: cache-dl
         with:
           path: ./openwrt/dl
-          key: ${{ runner.os }}-immortalwrt-dl-v5-25.12
+          key: ${{ runner.os }}-immortalwrt-dl-v6-25.12-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            ${{ runner.os }}-immortalwrt-dl-v5-25.12
+            ${{ runner.os }}-immortalwrt-dl-v6-25.12-
             ${{ runner.os }}-immortalwrt-dl-
       # 12. 恢复 ccache 缓存
       - name: 恢复 ccache 缓存
@@ -343,24 +341,19 @@ jobs:
         id: cache-ccache
         with:
           path: ./openwrt/.ccache
-          key: ${{ runner.os }}-immortalwrt-ccache-v5-25.12
+          key: ${{ runner.os }}-immortalwrt-ccache-v6-25.12-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
+            ${{ runner.os }}-immortalwrt-ccache-v6-25.12-
             ${{ runner.os }}-immortalwrt-ccache-
       # 13. 恢复工具链缓存
       - name: 恢复工具链缓存
         uses: actions/cache/restore@v4
         id: cache-staging
         with:
-          # 缓存目录说明：host 为主机侧构建工具，hostpkg 为主机侧软件包 staging。
-          # 原 B 方案遗漏 hostpkg，本次补齐；工具链目录限定为当前 x86_64 GCC。
           path: |
             ./openwrt/staging_dir/host
-            ./openwrt/staging_dir/hostpkg
-            ./openwrt/staging_dir/toolchain-x86_64_gcc-*
-          # 缓存版本升级为 v6，避免继续命中旧 v5 缓存。
-          # key 同时绑定源码 commit 与 .config 哈希，只有完全匹配才恢复。
-          # 有意删除 restore-keys，避免回退恢复其他 commit / 配置的旧工具链产物。
-          key: ${{ runner.os }}-immortalwrt-staging-v6-25.12-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config') }}
+            ./openwrt/staging_dir/toolchain-*
+          key: ${{ runner.os }}-immortalwrt-staging-v6-25.12-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config.requested') }}
       # 14. 运行 make defconfig
       - name: 运行 make defconfig
         working-directory: ./openwrt
@@ -505,26 +498,12 @@ jobs:
           echo
           echo "===== 依赖警告 ====="
           grep -n -E 'WARNING:|depends on|dependency|not found|unknown symbol|invalid' defconfig.log || true
-      # 17. 编译固件
-      - name: 编译 ImmortalWrt
+      # 17. 下载依赖源码包（独立步骤，确保编译失败时仍可保存 DL 缓存）
+      - name: 下载依赖源码包
+        id: download-deps
         working-directory: ./openwrt
-        env:
-          TZ: Asia/Shanghai
-          CCACHE_DIR: ${{ github.workspace }}/openwrt/.ccache
         run: |
-          set -o pipefail
-          export FORCE_UNSAFE_CONFIGURE=1
-          mkdir -p "$CCACHE_DIR"
-          ccache --set-config=max_size=5G
-          ccache -z
-          echo "============================================================"
-          echo "编译前 CCACHE 状态"
-          echo "============================================================"
-          ccache -s || true
-          echo "============================================================"
-          echo "编译前磁盘空间"
-          echo "============================================================"
-          df -h . 
+          set -euo pipefail
           echo "============================================================"
           echo "下载依赖源码包"
           echo "============================================================"
@@ -542,10 +521,56 @@ jobs:
             exit 1
           fi
           find dl -type f \( -name '*.tmp' -o -name '*.part' -o -name '*.partial' \) -print -delete || true
+
+      # 18. 保存下载缓存：只要下载成功，即使后续编译失败也保存
+      - name: 保存下载缓存
+        if: ${{ !cancelled() && steps.download-deps.outcome == 'success' && steps.cache-dl.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ./openwrt/dl
+          key: ${{ runner.os }}-immortalwrt-dl-v6-25.12-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # 19. Rust Host 单线程诊断编译
+      # 先单独编译 Rust Host，保留完整 V=s 日志；若失败，后续诊断上传仍会执行。
+      - name: Rust Host 诊断编译
+        id: rust-host
+        working-directory: ./openwrt
+        env:
+          TZ: Asia/Shanghai
+          CCACHE_DIR: ${{ github.workspace }}/openwrt/.ccache
+          FORCE_UNSAFE_CONFIGURE: '1'
+        run: |
+          set -o pipefail
+          echo "============================================================"
+          echo "Rust Host 单线程详细诊断"
+          echo "============================================================"
+          make -j1 V=s package/feeds/packages/rust/host/compile 2>&1 | tee rust-host-debug.log
+
+      # 20. 编译固件
+      - name: 编译 ImmortalWrt
+        id: compile-firmware
+        if: success()
+        working-directory: ./openwrt
+        env:
+          TZ: Asia/Shanghai
+          CCACHE_DIR: ${{ github.workspace }}/openwrt/.ccache
+          FORCE_UNSAFE_CONFIGURE: '1'
+        run: |
+          set -o pipefail
+          mkdir -p "$CCACHE_DIR"
+          ccache --set-config=max_size=5G
+          ccache --set-config=compression=true
+          echo "============================================================"
+          echo "编译前 CCACHE 状态"
+          echo "============================================================"
+          ccache -s || true
+          echo "============================================================"
+          echo "编译前磁盘空间"
+          echo "============================================================"
+          df -h .
           echo "============================================================"
           echo "开始编译 IMMORTALWRT"
           echo "============================================================"
-          # 保留 B 方案原有并行度；只有日志明确出现 OOM / Killed / SIGKILL 时才考虑降低 -j。
           if ! make -j"$(nproc)" world 2>&1 | tee build.log; then
             echo "============================================================"
             echo "编译失败，build.log 末尾 300 行："
@@ -562,32 +587,25 @@ jobs:
           echo "编译后磁盘空间"
           echo "============================================================"
           df -h .
-      # 18. 保存下载缓存
-      - name: 保存下载缓存
-        if: success() && steps.cache-dl.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ./openwrt/dl
-          key: ${{ runner.os }}-immortalwrt-dl-v5-25.12
-      # 19. 保存 ccache 缓存
+
+      # 21. 保存 ccache：编译失败也保存已生成的有效对象文件
       - name: 保存 ccache 缓存
-        if: success() && steps.cache-ccache.outputs.cache-hit != 'true'
+        if: ${{ !cancelled() && steps.download-deps.outcome == 'success' && steps.cache-ccache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
         with:
           path: ./openwrt/.ccache
-          key: ${{ runner.os }}-immortalwrt-ccache-v5-25.12
-      # 20. 保存工具链缓存
+          key: ${{ runner.os }}-immortalwrt-ccache-v6-25.12-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # 22. 保存工具链缓存：仅完整构建成功后保存，避免缓存不完整 staging 产物
       - name: 保存工具链缓存
         if: success() && steps.cache-staging.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
-          # 必须与第 13 步恢复缓存的目录及 key 完全一致。
           path: |
             ./openwrt/staging_dir/host
-            ./openwrt/staging_dir/hostpkg
-            ./openwrt/staging_dir/toolchain-x86_64_gcc-*
-          key: ${{ runner.os }}-immortalwrt-staging-v6-25.12-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config') }}
-      # 21. 收集 EFI 镜像和校验和
+            ./openwrt/staging_dir/toolchain-*
+          key: ${{ runner.os }}-immortalwrt-staging-v6-25.12-${{ env.SOURCE_COMMIT }}-${{ hashFiles('openwrt/.config.requested') }}
+      # 23. 收集 EFI 镜像和校验和
       - name: 收集发布文件
         working-directory: ./openwrt
         run: |
@@ -623,7 +641,7 @@ jobs:
           echo "发布文件列表"
           echo "============================================================"
           ls -lh release/
-      # 22. 上传固件和诊断信息
+      # 24. 上传固件和诊断信息
       - name: 上传固件
         uses: actions/upload-artifact@v4
         with:
@@ -634,7 +652,7 @@ jobs:
             ./openwrt/release/buildinfo.txt
           if-no-files-found: error
           retention-days: 14
-
+ 
       - name: 上传诊断信息
         if: always()
         uses: actions/upload-artifact@v4
@@ -645,11 +663,12 @@ jobs:
             ./openwrt/.config.requested
             ./openwrt/defconfig.log
             ./openwrt/build.log
+            ./openwrt/rust-host-debug.log
             ./openwrt/release/buildinfo.txt
           if-no-files-found: warn
           retention-days: 14
-
-      # 23. 创建 GitHub Release
+ 
+      # 25. 创建 GitHub Release
       - name: 创建 GitHub Release
         if: success()
         uses: softprops/action-gh-release@v2
@@ -658,7 +677,7 @@ jobs:
           name: ImmortalWrt 25.12 x86_64 (${{ env.BUILD_DATE }})
           body: |
             ## ImmortalWrt 25.12 x86_64
-            **固件：** \`${{ env.RELEASE_FILE }}\`
+            **固件：** `${{ env.RELEASE_FILE }}`
             **目标平台：** x86_64 Generic
             **固件格式：** EFI
             **编译时间：** ${{ env.BUILD_DATE }} 北京时间
@@ -673,8 +692,8 @@ jobs:
             - OpenVPN
             - TimeControl
             ### 源码
-            **ImmortalWrt：** \`openwrt-25.12\`
-            **ImmortalWrt commit：** \`${{ env.SOURCE_COMMIT }}\`
+            **ImmortalWrt：** `openwrt-25.12`
+            **ImmortalWrt commit：** `${{ env.SOURCE_COMMIT }}`
           files: |
             ./openwrt/release/${{ env.RELEASE_FILE }}
             ./openwrt/release/SHA256SUMS.txt
@@ -685,8 +704,8 @@ jobs:
           generate_release_notes: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # 24. 清理旧 Release（保留最近 30 个）
+ 
+      # 26. 清理旧 Release（保留最近 30 个）
       - name: 清理旧 Release
         if: success()
         env:
@@ -707,8 +726,8 @@ jobs:
             gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag
           done
           echo "Release 清理完成"
-
-      # 25. 删除旧的 workflow 运行记录
+          
+      # 27. 删除旧的 workflow 运行记录
       #- name: 删除旧的 workflow 运行记录
       #  if: always()
       #  uses: Mattraks/delete-workflow-runs@v2
@@ -717,7 +736,7 @@ jobs:
       #    token: ${{ github.token }}
       #    repository: ${{ github.repository }}
       #    retain_days: 20
-
+ 
       - name: 最终总结
         if: always()
         working-directory: ./openwrt
@@ -733,4 +752,4 @@ jobs:
           echo
           echo "CCache:"
           ccache -s || true
-          echo "################################################################"          
+          echo "################################################################"
