@@ -60,7 +60,6 @@ jobs:
           git log -1 --format='commit: %H'
           git log -1 --format='subject: %s'
           echo "SOURCE_COMMIT=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
-
       # 5. 配置 feeds
       - name: 配置上游 feeds
         working-directory: ./openwrt
@@ -308,7 +307,6 @@ jobs:
           # ============================================================
           EOF
           cp .config .config.requested
-
       # ============================================================
       # Build Fingerprint：在 .config.requested 生成后计算，确保配置变更能触发编译。
       # 同时纳入 ImmortalWrt 与全部第三方组件（含 TimeControl）的最新 commit。
@@ -377,7 +375,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-immortalwrt-dl-v8-25.12-
             ${{ runner.os }}-immortalwrt-dl-
-
       # 12. 恢复 ccache 缓存
       # 每次运行保存新快照，避免 A 版固定 key 导致缓存命中后永远无法更新。
       - name: 恢复 ccache 缓存
@@ -390,7 +387,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-immortalwrt-ccache-v8-25.12-
             ${{ runner.os }}-immortalwrt-ccache-
-
       # 13. 恢复 Host / Toolchain 缓存
       # 缓存键绑定 .config.requested（架构及编译选项），不绑定每日变化的 SOURCE_COMMIT。
       # 不缓存 target-x86_64_musl/host，避免把目标侧 host 工具产物混入工具链缓存。
@@ -407,7 +403,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-immortalwrt-staging-v8-25.12-${{ hashFiles('openwrt/.config.requested') }}-
             ${{ runner.os }}-immortalwrt-staging-v5-25.12-${{ hashFiles('openwrt/.config.requested') }}
-
       # 14. 运行 make defconfig
       - name: 运行 make defconfig
         if: env.SKIP_BUILD != 'true'
@@ -575,7 +570,6 @@ jobs:
           fi
           # 仅清理明确的临时残留，不删除可能合法的小文件。
           find dl -type f \( -name '*.tmp' -o -name '*.part' -o -name '*.partial' \) -print -delete || true
-
       # 18. 保存下载缓存：下载成功即可保存，不依赖后续编译是否成功。
       - name: 保存下载缓存
         if: ${{ env.SKIP_BUILD != 'true' && !cancelled() && steps.download-deps.outcome == 'success' && steps.cache-dl.outputs.cache-hit != 'true' }}
@@ -585,6 +579,37 @@ jobs:
           key: ${{ runner.os }}-immortalwrt-dl-v8-25.12-${{ github.run_id }}-${{ github.run_attempt }}
 
 
+      # 19. 编译 ImmortalWrt
+      - name: 编译 ImmortalWrt
+        if: env.SKIP_BUILD != 'true'
+        id: compile-firmware
+        working-directory: ./openwrt
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/openwrt/.ccache
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p "$CCACHE_DIR"
+          ccache --set-config=max_size=5G
+          ccache --set-config=compression=true
+          echo "============================================================"
+          echo "开始编译 ImmortalWrt"
+          echo "============================================================"
+          echo "并行任务数: $(nproc)"
+          echo "编译目标: make world"
+          make -j"$(nproc)" world 2>&1 | tee build.log
+          BUILD_STATUS=${PIPESTATUS[0]}
+          if [ "$BUILD_STATUS" -ne 0 ]; then
+            echo "ERROR: ImmortalWrt 编译失败，退出码: ${BUILD_STATUS}"
+            echo "===== build.log 最后 300 行 ====="
+            tail -n 300 build.log || true
+            exit "$BUILD_STATUS"
+          fi
+          echo "============================================================"
+          echo "ImmortalWrt 编译成功"
+          echo "============================================================"
+          ccache -s || true
+
       # 19.1 Rust Host 定点诊断：仅在完整编译失败后执行
       - name: Rust Host 详细错误诊断
         if: failure() && steps.compile-firmware.outcome == 'failure'
@@ -592,80 +617,24 @@ jobs:
         shell: bash
         run: |
           set +e
-
           echo "============================================================"
           echo "Rust Host 单线程详细诊断"
           echo "============================================================"
-
           echo "当前磁盘空间："
           df -h .
-
           echo "当前内存状态："
           free -h
-
           echo "开始单独编译 Rust Host："
           make package/feeds/packages/rust/host/compile -j1 V=s 2>&1 | tee rust-host-debug.log
           RUST_EXIT_CODE=${PIPESTATUS[0]}
-
           echo "Rust Host 诊断退出码：${RUST_EXIT_CODE}"
-
           echo "============================================================"
           echo "Rust Host 错误摘要"
           echo "============================================================"
-
           grep -n -i -E \
             'error:|error\[|failed|killed|signal 9|out of memory|cannot find|undefined reference|linker' \
             rust-host-debug.log | tail -n 150 || true
-
           exit 0
-
-      # Rust Host 定点诊断：仅在完整编译失败后执行
-      - name: Rust Host 详细错误诊断
-        if: failure()
-        working-directory: ./openwrt
-        shell: bash
-        run: |
-          set +e
-
-          echo "============================================================"
-          echo "Rust Host 单线程详细诊断"
-          echo "============================================================"
-
-          echo "当前磁盘空间："
-          df -h .
-
-          echo "当前内存状态："
-          free -h
-
-          echo "开始单独编译 Rust Host："
-          make package/feeds/packages/rust/host/compile -j1 V=s 2>&1 | tee rust-host-debug.log
-
-          echo "Rust Host 诊断退出码：${PIPESTATUS[0]}"
-
-          echo "============================================================"
-          echo "Rust Host 错误摘要"
-          echo "============================================================"
-
-          grep -n -i -E \
-            'error:|error\\[|failed|killed|signal 9|out of memory|cannot find|undefined reference|linker' \
-            rust-host-debug.log | tail -n 150 || true
-
-      # 无论成功或失败，都上传诊断文件
-
-      - name: 上传诊断信息
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ImmortalWrt-diagnostics-${{ github.run_number }}
-          path: |
-            ./openwrt/.config
-            ./openwrt/.config.requested
-            ./openwrt/defconfig.log
-            ./openwrt/build.log
-            ./openwrt/rust-host-debug.log
-            ./openwrt/release/buildinfo.txt
-          if-no-files-found: warn
-          retention-days: 14
 
       # 20. 保存 ccache：下载成功即可保存已有对象文件，编译中断也不丢弃增量。
       - name: 保存 ccache 缓存
@@ -686,7 +655,7 @@ jobs:
           key: ${{ runner.os }}-immortalwrt-staging-v8-25.12-${{ hashFiles('openwrt/.config.requested') }}-${{ github.run_id }}-${{ github.run_attempt }}
       # 22. 收集 EFI 镜像和校验和
       - name: 收集发布文件
-        if: env.SKIP_BUILD != 'true'
+        if: env.SKIP_BUILD != 'true' && success() && steps.compile-firmware.outcome == 'success'
         working-directory: ./openwrt
         run: |
           set -e
@@ -723,7 +692,7 @@ jobs:
           ls -lh release/
       # 23. 上传固件和诊断信息
       - name: 上传固件
-        if: env.SKIP_BUILD != 'true'
+        if: env.SKIP_BUILD != 'true' && success() && steps.compile-firmware.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: ImmortalWrt-x86-64-${{ github.run_number }}
@@ -744,6 +713,7 @@ jobs:
             ./openwrt/.config.requested
             ./openwrt/defconfig.log
             ./openwrt/build.log
+            ./openwrt/rust-host-debug.log
             ./openwrt/release/buildinfo.txt
           if-no-files-found: warn
           retention-days: 14
@@ -816,7 +786,6 @@ jobs:
           else
             echo "无需清理"
           fi
-
       # 26. 删除旧的 workflow 运行记录
       #- name: 删除旧的 workflow 运行记录
       #  if: always()
