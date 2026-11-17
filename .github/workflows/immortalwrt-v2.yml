@@ -584,49 +584,40 @@ jobs:
           path: ./openwrt/dl
           key: ${{ runner.os }}-immortalwrt-dl-v8-25.12-${{ github.run_id }}-${{ github.run_attempt }}
 
-      # 19. 编译固件：保留 A 版已验证的 make world 编译路径，不单独强制编译 Rust Host。
-      - name: 编译 ImmortalWrt
-        id: compile-firmware
-        if: env.SKIP_BUILD != 'true' && success()
+
+      # 19.1 Rust Host 定点诊断：仅在完整编译失败后执行
+      - name: Rust Host 详细错误诊断
+        if: failure() && steps.compile-firmware.outcome == 'failure'
         working-directory: ./openwrt
-        env:
-          TZ: Asia/Shanghai
-          CCACHE_DIR: ${{ github.workspace }}/openwrt/.ccache
-          FORCE_UNSAFE_CONFIGURE: '1'
+        shell: bash
         run: |
-          set -o pipefail
-          mkdir -p "$CCACHE_DIR"
-          ccache --set-config=max_size=5G
-          ccache --set-config=compression=true
-          ccache -z
+          set +e
+
           echo "============================================================"
-          echo "编译前 CCACHE 状态"
+          echo "Rust Host 单线程详细诊断"
           echo "============================================================"
-          ccache -s || true
-          echo "============================================================"
-          echo "编译前磁盘空间"
-          echo "============================================================"
-          df -h .
-          echo "============================================================"
-          echo "开始编译 IMMORTALWRT"
-          echo "============================================================"
-          if ! make -j"$(nproc)" world 2>&1 | tee build.log; then
-            echo "============================================================"
-            echo "编译失败，build.log 末尾 300 行："
-            echo "============================================================"
-            tail -n 300 build.log
-            exit 1
-          fi
-          echo
-          echo "============================================================"
-          echo "编译后 CCACHE 状态"
-          echo "============================================================"
-          ccache -s || true
-          echo "============================================================"
-          echo "编译后磁盘空间"
-          echo "============================================================"
+
+          echo "当前磁盘空间："
           df -h .
 
+          echo "当前内存状态："
+          free -h
+
+          echo "开始单独编译 Rust Host："
+          make package/feeds/packages/rust/host/compile -j1 V=s 2>&1 | tee rust-host-debug.log
+          RUST_EXIT_CODE=${PIPESTATUS[0]}
+
+          echo "Rust Host 诊断退出码：${RUST_EXIT_CODE}"
+
+          echo "============================================================"
+          echo "Rust Host 错误摘要"
+          echo "============================================================"
+
+          grep -n -i -E \
+            'error:|error\[|failed|killed|signal 9|out of memory|cannot find|undefined reference|linker' \
+            rust-host-debug.log | tail -n 150 || true
+
+          exit 0
 
       # Rust Host 定点诊断：仅在完整编译失败后执行
       - name: Rust Host 详细错误诊断
@@ -660,17 +651,19 @@ jobs:
             rust-host-debug.log | tail -n 150 || true
 
       # 无论成功或失败，都上传诊断文件
-      - name: 上传 Rust Host 诊断日志
+
+      - name: 上传诊断信息
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ImmortalWrt-Rust-Host-Diagnostics
+          name: ImmortalWrt-diagnostics-${{ github.run_number }}
           path: |
-            ./openwrt/build.log
-            ./openwrt/rust-host-debug.log
-            ./openwrt/defconfig.log
             ./openwrt/.config
             ./openwrt/.config.requested
+            ./openwrt/defconfig.log
+            ./openwrt/build.log
+            ./openwrt/rust-host-debug.log
+            ./openwrt/release/buildinfo.txt
           if-no-files-found: warn
           retention-days: 14
 
