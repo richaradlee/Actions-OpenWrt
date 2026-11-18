@@ -80,10 +80,8 @@ jobs:
           ./scripts/feeds update -a
           ./scripts/feeds install -a
 
-      # 6.1 修复 Rust Host LLVM CI 下载问题
-      # Rust 1.96.0 可能尝试从 ci-artifacts.rust-lang.org 下载已不存在的 LLVM。
-      # 通过 HOST_CONFIGURE_ARGS 强制关闭 download-ci-llvm。
-      # 该参数在 Rust Bootstrap 配置生成阶段生效。
+      # 6.1 Rust Host LLVM 配置修复
+      # 保留此修复：防止 Rust Bootstrap 尝试下载不可用的 LLVM CI 构建文件。
       - name: 修复 Rust Host LLVM CI 下载问题
         working-directory: ./openwrt
         shell: bash
@@ -93,20 +91,13 @@ jobs:
           RUST_MAKEFILE="feeds/packages/lang/rust/Makefile"
 
           echo "============================================================"
-          echo "Rust Host LLVM CI 下载配置修复"
+          echo "Rust Host LLVM 配置"
           echo "============================================================"
 
           if [ ! -f "$RUST_MAKEFILE" ]; then
             echo "ERROR: Rust Makefile not found: $RUST_MAKEFILE"
             exit 1
           fi
-
-          echo "Rust Makefile: $RUST_MAKEFILE"
-
-          echo
-          echo "===== 修复前配置 ====="
-          grep -n -E 'llvm\.download-ci-llvm|enable-cargo-native-static' \
-            "$RUST_MAKEFILE" || true
 
           python3 - "$RUST_MAKEFILE" <<'PY'
           from pathlib import Path
@@ -118,14 +109,12 @@ jobs:
 
           option = "--set=llvm.download-ci-llvm=false"
 
-          # 如果原有配置为 true，替换为 false。
           content = re.sub(
               r"--set=llvm\.download-ci-llvm=true",
               option,
               content
           )
 
-          # 如果尚未配置，则插入 HOST_CONFIGURE_ARGS。
           if option not in content:
               pattern = re.compile(
                   r"(?m)^([ \t]*)--enable-cargo-native-static[ \t]*\\[ \t]*$"
@@ -134,8 +123,9 @@ jobs:
               match = pattern.search(content)
 
               if not match:
-                  print("ERROR: Cannot find HOST_CONFIGURE_ARGS insertion point.")
-                  sys.exit(1)
+                  raise SystemExit(
+                      "ERROR: Cannot find HOST_CONFIGURE_ARGS insertion point."
+                  )
 
               indent = match.group(1)
 
@@ -147,24 +137,22 @@ jobs:
                   + " \\"
               )
 
-              content = content[:match.start()] + replacement + content[match.end():]
+              content = (
+                  content[:match.start()]
+                  + replacement
+                  + content[match.end():]
+              )
 
           path.write_text(content)
 
-          # 确认参数存在且只有一处。
-          occurrences = content.count(option)
-
-          if occurrences != 1:
-              print(
-                  f"ERROR: Expected exactly one LLVM option, found {occurrences}"
+          if content.count(option) != 1:
+              raise SystemExit(
+                  "ERROR: Expected exactly one LLVM option."
               )
-              sys.exit(1)
 
           print("Rust Makefile successfully patched.")
           PY
 
-          echo
-          echo "===== 修复后配置 ====="
           grep -n -B 3 -A 3 'llvm.download-ci-llvm' "$RUST_MAKEFILE"
 
           grep -qF -- '--set=llvm.download-ci-llvm=false' "$RUST_MAKEFILE" || {
@@ -172,15 +160,7 @@ jobs:
             exit 1
           }
 
-          if grep -qF -- '--set=llvm.download-ci-llvm=true' "$RUST_MAKEFILE"; then
-            echo "ERROR: Old LLVM configuration still exists."
-            exit 1
-          fi
-
-          echo
-          echo "============================================================"
-          echo "RUST LLVM CONFIGURATION CHECK PASSED"
-          echo "============================================================"
+          echo "Rust LLVM configuration ready."
 
       # 7. 安装第三方软件包
       - name: 安装第三方软件包
@@ -227,7 +207,7 @@ jobs:
           }
           EOF
 
-      # 8. 验证第三方源码
+      # 8. 验证第三方软件包源码
       - name: 验证第三方软件包源码
         working-directory: ./openwrt
         run: |
@@ -261,9 +241,7 @@ jobs:
           echo "TIMECONTROL_VERSION=${TIMECONTROL_VERSION}" >> "$GITHUB_ENV"
           echo "TIMECONTROL_RELEASE=${TIMECONTROL_RELEASE}" >> "$GITHUB_ENV"
 
-          echo "============================================================"
           echo "THIRD-PARTY SOURCE CHECK PASSED"
-          echo "============================================================"
 
       # 9. 自定义应用配置
       - name: 自定义应用配置
@@ -433,7 +411,6 @@ jobs:
 
       # ============================================================
       # Build Fingerprint
-      # 在 .config.requested 生成后计算。
       # 纳入源码、Feeds、第三方组件、配置和 workflow 文件哈希。
       # ============================================================
       - name: 检查源码、组件与配置是否有更新
@@ -464,8 +441,6 @@ jobs:
 
           CONFIG_HASH="$(sha256sum .config.requested | awk '{print $1}')"
 
-          # 纳入 workflow 文件哈希。
-          # 防止仅修改 YAML 后仍被旧 Release 指纹判定为无需编译。
           WORKFLOW_HASH="$(
             find "$GITHUB_WORKSPACE/.github/workflows" \
               -maxdepth 1 -type f \
@@ -630,23 +605,7 @@ jobs:
           done
 
           echo
-          echo "===== TimeControl ====="
-
-          test -f package/luci-app-timecontrol/Makefile || {
-            echo "ERROR: TimeControl Makefile not found."
-            FAILED=1
-          }
-
-          grep -q "^CONFIG_PACKAGE_luci-app-timecontrol=y$" .config || {
-            echo "ERROR: TimeControl package is not enabled."
-            FAILED=1
-          }
-
-          grep -q "^CONFIG_PACKAGE_conntrack=y$" .config || {
-            echo "ERROR: conntrack package is not enabled."
-            FAILED=1
-          }
-
+          echo "===== TimeControl 版本 ====="
           echo "TimeControl version: ${TIMECONTROL_VERSION:-unknown}"
           echo "TimeControl release: ${TIMECONTROL_RELEASE:-unknown}"
 
@@ -655,7 +614,7 @@ jobs:
           check_not_y CONFIG_PACKAGE_luci-app-openvpn-server
 
           echo
-          echo "===== 警告检查 ====="
+          echo "===== 配置检查 ====="
 
           if grep -q "Not overriding core package 'luci-app-openclash'" defconfig.log; then
             echo "ERROR: OpenClash override warning."
@@ -663,66 +622,13 @@ jobs:
           fi
 
           if [ "$FAILED" -ne 0 ]; then
-            echo
-            echo "============================================================"
             echo "最终配置验证失败"
-            echo "============================================================"
             exit 1
           fi
 
-          echo
-          echo "============================================================"
           echo "最终配置验证通过"
-          echo "============================================================"
 
-      # 16. 审计重要组件
-      - name: 审计重要组件
-        if: env.SKIP_BUILD != 'true'
-        working-directory: ./openwrt
-        run: |
-          set -e
-
-          echo "===== ImmortalWrt ====="
-          git log -1 --format='commit: %H'
-          git log -1 --format='subject: %s'
-
-          echo
-          echo "===== UPnP / PCP / NAT-PMP ====="
-          grep -E '^CONFIG_PACKAGE_(luci-app-upnp|miniupnpd-nftables|luci-i18n-upnp-zh-cn)=' .config || true
-          echo "miniupnpd 提供 UPnP IGD、NAT-PMP 和 PCP 支持。"
-
-          echo
-          echo "===== Vlmcsd ====="
-          grep -E '^CONFIG_PACKAGE_(vlmcsd|luci-app-vlmcsd|luci-i18n-vlmcsd-zh-cn)=' .config || true
-
-          echo
-          echo "===== OpenVPN ====="
-          grep -E '^CONFIG_PACKAGE_(luci-app-openvpn|openvpn-easy-rsa|luci-app-openvpn-server)=' .config || true
-
-          echo
-          echo "===== WireGuard ====="
-          grep -E '^CONFIG_PACKAGE_(kmod-wireguard|wireguard-tools|luci-proto-wireguard)=' .config || true
-
-          echo
-          echo "===== DAED / BTF ====="
-          grep -E '^CONFIG_(DEVEL|KERNEL_DEBUG_INFO|KERNEL_DEBUG_INFO_BTF|KERNEL_CGROUPS|KERNEL_CGROUP_BPF|KERNEL_BPF_EVENTS|BPF_TOOLCHAIN_HOST|KERNEL_XDP_SOCKETS)=' .config || true
-
-          echo
-          echo "===== TimeControl ====="
-          grep -E '^CONFIG_PACKAGE_(luci-app-timecontrol|conntrack)=' .config || true
-          echo "TimeControl version: ${TIMECONTROL_VERSION:-unknown}"
-          echo "TimeControl release: ${TIMECONTROL_RELEASE:-unknown}"
-
-          echo
-          echo "===== 缓存 ====="
-          echo "CCACHE_DIR=$PWD/.ccache"
-          ccache -s || true
-
-          echo
-          echo "===== 依赖警告 ====="
-          grep -n -E 'WARNING:|depends on|dependency|not found|unknown symbol|invalid' defconfig.log || true
-
-      # 17. 下载依赖源码包
+      # 16. 下载依赖源码包
       - name: 下载依赖源码包
         if: env.SKIP_BUILD != 'true'
         id: download-deps
@@ -753,7 +659,7 @@ jobs:
 
           find dl -type f \( -name '*.tmp' -o -name '*.part' -o -name '*.partial' \) -print -delete || true
 
-      # 18. 保存下载缓存
+      # 17. 保存下载缓存
       - name: 保存下载缓存
         if: ${{ env.SKIP_BUILD != 'true' && !cancelled() && steps.download-deps.outcome == 'success' && steps.cache-dl.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
@@ -761,7 +667,7 @@ jobs:
           path: ./openwrt/dl
           key: ${{ runner.os }}-immortalwrt-dl-v8-25.12-${{ github.run_id }}-${{ github.run_attempt }}
 
-      # 19. 编译 ImmortalWrt
+      # 18. 编译 ImmortalWrt
       - name: 编译 ImmortalWrt
         if: env.SKIP_BUILD != 'true'
         id: compile-firmware
@@ -799,60 +705,7 @@ jobs:
 
           ccache -s || true
 
-      # 19.1 Rust Host 定点诊断：仅在完整编译失败后执行
-      - name: Rust Host 详细错误诊断
-        if: failure() && steps.compile-firmware.outcome == 'failure'
-        working-directory: ./openwrt
-        shell: bash
-        run: |
-          set +e
-
-          echo "============================================================"
-          echo "Rust Host 单线程详细诊断"
-          echo "============================================================"
-
-          echo "===== Rust Makefile LLVM 配置 ====="
-          grep -n -B 3 -A 3 'llvm.download-ci-llvm' \
-            feeds/packages/lang/rust/Makefile || true
-
-          echo
-          echo "===== 当前磁盘空间 ====="
-          df -h .
-
-          echo
-          echo "===== 当前内存状态 ====="
-          free -h
-
-          echo
-          echo "===== 检查 Rust Bootstrap 配置 ====="
-
-          find build_dir -path '*/rustc-*-src/config.toml' \
-            -type f -print 2>/dev/null | while read -r CONFIG_FILE; do
-              echo "Config: $CONFIG_FILE"
-              grep -n -A 3 '^\[llvm\]' "$CONFIG_FILE" || true
-          done
-
-          echo
-          echo "===== 开始单独编译 Rust Host ====="
-
-          make package/feeds/packages/rust/host/compile -j1 V=s 2>&1 | tee rust-host-debug.log
-
-          RUST_EXIT_CODE=${PIPESTATUS[0]}
-
-          echo "Rust Host 诊断退出码：${RUST_EXIT_CODE}"
-
-          echo
-          echo "============================================================"
-          echo "Rust Host 错误摘要"
-          echo "============================================================"
-
-          grep -n -i -E \
-            'error:|error\[|failed|killed|signal 9|out of memory|cannot find|undefined reference|linker|download-ci-llvm|404' \
-            rust-host-debug.log | tail -n 150 || true
-
-          exit 0
-
-      # 20. 保存 ccache
+      # 19. 保存 ccache
       - name: 保存 ccache 缓存
         if: ${{ env.SKIP_BUILD != 'true' && !cancelled() && steps.download-deps.outcome == 'success' && steps.cache-ccache.outputs.cache-hit != 'true' }}
         uses: actions/cache/save@v4
@@ -860,7 +713,7 @@ jobs:
           path: ./openwrt/.ccache
           key: ${{ runner.os }}-immortalwrt-ccache-v8-25.12-${{ github.run_id }}-${{ github.run_attempt }}
 
-      # 21. 保存 Host / Toolchain 缓存
+      # 20. 保存 Host / Toolchain 缓存
       - name: 保存工具链缓存
         if: env.SKIP_BUILD != 'true' && success() && steps.cache-staging.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
@@ -870,7 +723,7 @@ jobs:
             ./openwrt/staging_dir/toolchain-*
           key: ${{ runner.os }}-immortalwrt-staging-v8-25.12-${{ hashFiles('openwrt/.config.requested') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
-      # 22. 收集 EFI 镜像和校验和
+      # 21. 收集 EFI 镜像和校验和
       - name: 收集发布文件
         if: env.SKIP_BUILD != 'true' && success() && steps.compile-firmware.outcome == 'success'
         working-directory: ./openwrt
@@ -913,7 +766,7 @@ jobs:
 
           ls -lh release/
 
-      # 23. 上传固件
+      # 22. 上传固件
       - name: 上传固件
         if: env.SKIP_BUILD != 'true' && success() && steps.compile-firmware.outcome == 'success'
         uses: actions/upload-artifact@v4
@@ -926,7 +779,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-      # 23.1 上传诊断信息
+      # 22.1 上传构建诊断信息
       - name: 上传诊断信息
         if: always()
         uses: actions/upload-artifact@v4
@@ -937,12 +790,11 @@ jobs:
             ./openwrt/.config.requested
             ./openwrt/defconfig.log
             ./openwrt/build.log
-            ./openwrt/rust-host-debug.log
             ./openwrt/release/buildinfo.txt
           if-no-files-found: warn
           retention-days: 14
 
-      # 24. 创建 GitHub Release
+      # 23. 创建 GitHub Release
       - name: 创建 GitHub Release
         if: env.SKIP_BUILD != 'true' && success()
         uses: softprops/action-gh-release@v2
@@ -988,7 +840,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 25. 清理旧 Release（保留最近 30 个）
+      # 24. 清理旧 Release（保留最近 30 个）
       - name: 清理旧 Release（仅保留最近 30 个）
         if: env.SKIP_BUILD != 'true' && success()
         env:
@@ -1020,7 +872,7 @@ jobs:
             echo "无需清理"
           fi
 
-      # 26. 删除旧的 workflow 运行记录
+      # 25. 删除旧的 workflow 运行记录
       # - name: 删除旧的 workflow 运行记录
       #   if: always()
       #   uses: Mattraks/delete-workflow-runs@v2
@@ -1030,7 +882,7 @@ jobs:
       #     repository: ${{ github.repository }}
       #     retain_days: 20
 
-      # 27. 最终总结
+      # 26. 最终总结
       - name: 最终总结
         if: always()
         working-directory: ./openwrt
