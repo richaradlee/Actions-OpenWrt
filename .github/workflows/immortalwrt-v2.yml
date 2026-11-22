@@ -1,4 +1,3 @@
-
 name: ImmortalWrt.V2
 
 on:
@@ -12,7 +11,10 @@ jobs:
     if: github.event_name == 'schedule' || github.event.repository.owner.id == github.event.sender.id
     permissions:
       contents: write
-      # actions: write
+      actions: write
+      
+    env:
+      RUST_SCCACHE_DIR: ${{ github.workspace }}/openwrt/.sccache
 
     name: ImmortalWrt 编译
     timeout-minutes: 300
@@ -263,6 +265,7 @@ jobs:
           CONFIG_TARGET_IMAGES_GZIP=y
           CONFIG_EFI_IMAGES=y
           CONFIG_CCACHE=y
+          CONFIG_RUST_SCCACHE=y
           # ============================================================
           # IPv6 / IPv6 Firewall
           # ============================================================
@@ -515,6 +518,18 @@ jobs:
             ${{ runner.os }}-immortalwrt-ccache-v8-25.12-
             ${{ runner.os }}-immortalwrt-ccache-
 
+      # 12.1 恢复 Rust sccache 缓存
+      - name: 恢复 Rust sccache 缓存
+        if: env.SKIP_BUILD != 'true'
+        uses: actions/cache/restore@v4
+        id: cache-sccache
+        with:
+          path: ./openwrt/.sccache
+          key: ${{ runner.os }}-immortalwrt-sccache-v1-25.12-x86_64-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ runner.os }}-immortalwrt-sccache-v1-25.12-x86_64-
+            ${{ runner.os }}-immortalwrt-sccache-v1-25.12-
+
       # 13. 恢复 Host / Toolchain 缓存
       - name: 恢复工具链缓存
         if: env.SKIP_BUILD != 'true'
@@ -615,6 +630,8 @@ jobs:
 
           echo
           echo "===== 配置检查 ====="
+          check_y CONFIG_CCACHE
+          check_y CONFIG_RUST_SCCACHE
 
           if grep -q "Not overriding core package 'luci-app-openclash'" defconfig.log; then
             echo "ERROR: OpenClash override warning."
@@ -667,6 +684,23 @@ jobs:
           path: ./openwrt/dl
           key: ${{ runner.os }}-immortalwrt-dl-v8-25.12-${{ github.run_id }}-${{ github.run_attempt }}
 
+      # 17.1 检查 Rust sccache 缓存目录
+      - name: 检查 Rust sccache
+        if: env.SKIP_BUILD != 'true'
+        working-directory: ./openwrt
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$RUST_SCCACHE_DIR"
+          echo "RUST_SCCACHE_DIR=$RUST_SCCACHE_DIR"
+          du -sh "$RUST_SCCACHE_DIR" || true
+
+          if ! grep -R -q 'RUST_SCCACHE' tools/sccache tools/Config.in 2>/dev/null; then
+            echo "WARNING: Rust sccache integration marker was not found in expected upstream files."
+            echo "The Kconfig check after defconfig remains the authoritative integration check."
+          fi
+
       # 18. 编译 ImmortalWrt
       - name: 编译 ImmortalWrt
         if: env.SKIP_BUILD != 'true'
@@ -674,6 +708,7 @@ jobs:
         working-directory: ./openwrt
         env:
           CCACHE_DIR: ${{ github.workspace }}/openwrt/.ccache
+          RUST_SCCACHE_DIR: ${{ github.workspace }}/openwrt/.sccache
         shell: bash
         run: |
           set -uo pipefail
@@ -705,6 +740,25 @@ jobs:
 
           ccache -s || true
 
+          echo
+          echo "============================================================"
+          echo "Rust sccache statistics"
+          echo "============================================================"
+          SCCACHE_BIN="$(command -v sccache || true)"
+          if [ -z "$SCCACHE_BIN" ] && [ -x staging_dir/host/bin/sccache ]; then
+            SCCACHE_BIN="staging_dir/host/bin/sccache"
+          fi
+          if [ -z "$SCCACHE_BIN" ]; then
+            SCCACHE_BIN="$(find staging_dir/host \( -type f -o -type l \) -name sccache 2>/dev/null | head -n 1 || true)"
+          fi
+          if [ -n "$SCCACHE_BIN" ] && [ -x "$SCCACHE_BIN" ]; then
+            "$SCCACHE_BIN" --show-stats || true
+          else
+            echo "sccache executable not found in host staging; cache directory is retained regardless."
+          fi
+          echo "Rust cache directory size:"
+          du -sh "$RUST_SCCACHE_DIR" || true
+
       # 19. 保存 ccache
       - name: 保存 ccache 缓存
         if: ${{ env.SKIP_BUILD != 'true' && !cancelled() && steps.download-deps.outcome == 'success' && steps.cache-ccache.outputs.cache-hit != 'true' }}
@@ -712,6 +766,14 @@ jobs:
         with:
           path: ./openwrt/.ccache
           key: ${{ runner.os }}-immortalwrt-ccache-v8-25.12-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # 19.1 保存 Rust sccache 缓存
+      - name: 保存 Rust sccache 缓存
+        if: ${{ env.SKIP_BUILD != 'true' && !cancelled() && steps.compile-firmware.outcome == 'success' && steps.cache-sccache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ./openwrt/.sccache
+          key: ${{ runner.os }}-immortalwrt-sccache-v1-25.12-x86_64-${{ github.run_id }}-${{ github.run_attempt }}
 
       # 20. 保存 Host / Toolchain 缓存
       - name: 保存工具链缓存
@@ -722,6 +784,42 @@ jobs:
             ./openwrt/staging_dir/host
             ./openwrt/staging_dir/toolchain-*
           key: ${{ runner.os }}-immortalwrt-staging-v8-25.12-${{ hashFiles('openwrt/.config.requested') }}-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # 20.1 清理过期构建缓存条目（每类保留最近 3 份）
+      - name: 清理旧构建缓存
+        if: env.SKIP_BUILD != 'true' && success()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          KEEP=3
+          CACHE_PREFIXES=(
+            "${{ runner.os }}-immortalwrt-dl-v8-25.12-"
+            "${{ runner.os }}-immortalwrt-ccache-v8-25.12-"
+            "${{ runner.os }}-immortalwrt-sccache-v1-25.12-x86_64-"
+            "${{ runner.os }}-immortalwrt-staging-v8-25.12-"
+          )
+
+          for PREFIX in "${CACHE_PREFIXES[@]}"; do
+            echo "Pruning Actions caches with prefix: $PREFIX"
+            CACHE_IDS="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/actions/caches?per_page=100" | \
+              jq -s --arg prefix "$PREFIX" --arg ref "$GITHUB_REF" --argjson keep "$KEEP" \
+                '[.[] | .actions_caches[]? | select(.key | startswith($prefix)) | select(.ref == $ref)] \
+                 | sort_by(.created_at) | reverse | .[$keep:] | .[].id')"
+
+            if [ -n "$CACHE_IDS" ]; then
+              while IFS= read -r CACHE_ID; do
+                [ -z "$CACHE_ID" ] && continue
+                echo "Deleting old cache id: $CACHE_ID"
+                gh api -X DELETE "repos/${GITHUB_REPOSITORY}/actions/caches/${CACHE_ID}"
+              done <<< "$CACHE_IDS"
+            else
+              echo "No old cache entries to delete."
+            fi
+          done
 
       # 21. 收集 EFI 镜像和校验和
       - name: 收集发布文件
